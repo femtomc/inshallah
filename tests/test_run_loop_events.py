@@ -126,8 +126,6 @@ def test_run_loop_event_sink_and_backend_provider(
     stdout = io.StringIO()
     stderr = io.StringIO()
     prev_session = os.environ.get("LOOPFARM_SESSION")
-    prev_thread = os.environ.get("DISCORD_THREAD_ID")
-
     try:
         exit_code = run_loop(
             cfg,
@@ -138,7 +136,6 @@ def test_run_loop_event_sink_and_backend_provider(
         )
     finally:
         _restore_env("LOOPFARM_SESSION", prev_session)
-        _restore_env("DISCORD_THREAD_ID", prev_thread)
 
     assert exit_code == 0
 
@@ -204,8 +201,6 @@ def test_run_loop_implementation_mode_runs_documentation_and_architecture(
     stdout = io.StringIO()
     stderr = io.StringIO()
     prev_session = os.environ.get("LOOPFARM_SESSION")
-    prev_thread = os.environ.get("DISCORD_THREAD_ID")
-
     try:
         exit_code = run_loop(
             cfg,
@@ -216,7 +211,6 @@ def test_run_loop_implementation_mode_runs_documentation_and_architecture(
         )
     finally:
         _restore_env("LOOPFARM_SESSION", prev_session)
-        _restore_env("DISCORD_THREAD_ID", prev_thread)
 
     assert exit_code == 0
 

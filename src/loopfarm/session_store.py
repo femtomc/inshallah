@@ -11,14 +11,12 @@ from .util import utc_now_iso
 # loopfarm:session:<session_id> -> SessionMeta (schema loopfarm.session.meta.v1)
 # loopfarm:control:<session_id> -> ControlState (schema loopfarm.session.control.v1)
 # loopfarm:context:<session_id> -> SessionContext (schema loopfarm.session.context.v1)
-# loopfarm:discord_cursor:<thread_id> -> DiscordCursor (schema loopfarm.discord.cursor.v1)
 # loopfarm:chat:<session_id> -> ChatState (schema loopfarm.session.chat.v1)
 # loopfarm:briefing:<session_id> -> PhaseSummary (schema loopfarm.session.briefing.v1)
 
 SESSION_META_SCHEMA = "loopfarm.session.meta.v1"
 CONTROL_STATE_SCHEMA = "loopfarm.session.control.v1"
 SESSION_CONTEXT_SCHEMA = "loopfarm.session.context.v1"
-DISCORD_CURSOR_SCHEMA = "loopfarm.discord.cursor.v1"
 CHAT_STATE_SCHEMA = "loopfarm.session.chat.v1"
 PHASE_SUMMARY_SCHEMA = "loopfarm.session.briefing.v1"
 
@@ -31,7 +29,7 @@ class SessionMeta(TypedDict, total=False):
     phase: str
     iteration: int
     timestamp: str
-    discord_context: str
+    session_context: str
 
 
 class ControlState(TypedDict, total=False):
@@ -47,12 +45,6 @@ class ControlState(TypedDict, total=False):
 class SessionContext(TypedDict, total=False):
     text: str
     author: str
-    timestamp: str
-
-
-class DiscordCursor(TypedDict, total=False):
-    thread_id: str
-    message_id: str
     timestamp: str
 
 
@@ -174,27 +166,6 @@ class SessionStore:
             SESSION_CONTEXT_SCHEMA,
             payload,
             author=author,
-        )
-        return payload
-
-    def get_discord_cursor(self, thread_id: str) -> DiscordCursor | None:
-        return self._read_latest(
-            self._discord_cursor_topic(thread_id),
-            DISCORD_CURSOR_SCHEMA,
-            allow_legacy=True,
-        )
-
-    def set_discord_cursor(self, thread_id: str, message_id: str) -> DiscordCursor:
-        payload: DiscordCursor = {
-            "thread_id": thread_id,
-            "message_id": message_id,
-            "timestamp": utc_now_iso(),
-        }
-        self._post(
-            self._discord_cursor_topic(thread_id),
-            DISCORD_CURSOR_SCHEMA,
-            payload,
-            author=None,
         )
         return payload
 
@@ -383,10 +354,6 @@ class SessionStore:
     @staticmethod
     def _context_topic(session_id: str) -> str:
         return f"loopfarm:context:{session_id}"
-
-    @staticmethod
-    def _discord_cursor_topic(thread_id: str) -> str:
-        return f"loopfarm:discord_cursor:{thread_id}"
 
     @staticmethod
     def _chat_topic(session_id: str) -> str:

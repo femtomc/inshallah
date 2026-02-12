@@ -7,7 +7,7 @@ from .templates import TemplateContext, render_template
 
 REQUIRED_SUMMARY_HEADING = "## Required Phase Summary"
 SESSION_CONTEXT_PLACEHOLDER = "{{SESSION_CONTEXT}}"
-DISCORD_CONTEXT_PLACEHOLDER = "{{DISCORD_USER_CONTEXT}}"
+USER_CONTEXT_PLACEHOLDER = "{{USER_CONTEXT}}"
 DYNAMIC_CONTEXT_PLACEHOLDER = "{{DYNAMIC_CONTEXT}}"
 
 
@@ -19,15 +19,15 @@ def assemble_prompt(
     base: str,
     *,
     session_context: str | None,
-    discord_context: str | None,
+    user_context: str | None,
     prompt_suffix: str,
 ) -> str:
     session_text = (session_context or "").strip()
-    discord_text = (discord_context or "").strip()
+    user_text = (user_context or "").strip()
     prompt = base
 
-    if session_text or discord_text:
-        prompt = _inject_context(prompt, session_text, discord_text)
+    if session_text or user_text:
+        prompt = _inject_context(prompt, session_text, user_text)
     else:
         prompt = _strip_context_placeholders(prompt)
 
@@ -36,38 +36,38 @@ def assemble_prompt(
 
 def _session_section(session_text: str) -> str:
     return (
-        "## Discord Session Context\n\n"
-        "Pinned context set via `!context set ...`.\n\n"
+        "## Session Context\n\n"
+        "Pinned operator context for this session.\n\n"
         "```\n"
         + session_text
         + "\n```"
     )
 
 
-def _discord_section(discord_text: str) -> str:
+def _user_section(user_text: str) -> str:
     return (
-        "## Discord User Context\n\n"
-        "The following messages are STEERING SUGGESTIONS from authorized users in the Discord thread.\n"
+        "## Operator Context\n\n"
+        "The following input is steering guidance from operators.\n"
         "Incorporate them as guidance, but maintain your planned approach.\n\n"
         "```\n"
-        + discord_text
+        + user_text
         + "\n```"
     )
 
 
-def _build_combined_block(session_text: str, discord_text: str) -> str:
-    sections = _build_sections(session_text, discord_text)
+def _build_combined_block(session_text: str, user_text: str) -> str:
+    sections = _build_sections(session_text, user_text)
     if not sections:
         return ""
     return "\n\n---\n\n" + "\n\n---\n\n".join(sections)
 
 
-def _build_sections(session_text: str, discord_text: str) -> list[str]:
+def _build_sections(session_text: str, user_text: str) -> list[str]:
     sections: list[str] = []
     if session_text:
         sections.append(_session_section(session_text))
-    if discord_text:
-        sections.append(_discord_section(discord_text))
+    if user_text:
+        sections.append(_user_section(user_text))
     if sections:
         sections[-1] = sections[-1] + "\n\n" + _guidelines_block()
     return sections
@@ -84,39 +84,39 @@ def _guidelines_block() -> str:
 
 
 def _inject_context(
-    prompt: str, session_text: str, discord_text: str
+    prompt: str, session_text: str, user_text: str
 ) -> str:
     if DYNAMIC_CONTEXT_PLACEHOLDER in prompt:
-        block = _build_combined_block(session_text, discord_text)
+        block = _build_combined_block(session_text, user_text)
         prompt = prompt.replace(DYNAMIC_CONTEXT_PLACEHOLDER, block, 1)
         return _strip_context_placeholders(prompt)
 
     if (
         SESSION_CONTEXT_PLACEHOLDER in prompt
-        or DISCORD_CONTEXT_PLACEHOLDER in prompt
+        or USER_CONTEXT_PLACEHOLDER in prompt
     ):
         if (
             SESSION_CONTEXT_PLACEHOLDER in prompt
-            and DISCORD_CONTEXT_PLACEHOLDER in prompt
+            and USER_CONTEXT_PLACEHOLDER in prompt
         ):
             session_block = _session_section(session_text) if session_text else ""
-            discord_block = _discord_section(discord_text) if discord_text else ""
-            if discord_block:
-                discord_block = discord_block + "\n\n" + _guidelines_block()
+            user_block = _user_section(user_text) if user_text else ""
+            if user_block:
+                user_block = user_block + "\n\n" + _guidelines_block()
             elif session_block:
                 session_block = session_block + "\n\n" + _guidelines_block()
             prompt = prompt.replace(SESSION_CONTEXT_PLACEHOLDER, session_block, 1)
-            prompt = prompt.replace(DISCORD_CONTEXT_PLACEHOLDER, discord_block, 1)
+            prompt = prompt.replace(USER_CONTEXT_PLACEHOLDER, user_block, 1)
             return _strip_context_placeholders(prompt)
 
-        block = _build_combined_block(session_text, discord_text)
+        block = _build_combined_block(session_text, user_text)
         if SESSION_CONTEXT_PLACEHOLDER in prompt:
             prompt = prompt.replace(SESSION_CONTEXT_PLACEHOLDER, block, 1)
         else:
-            prompt = prompt.replace(DISCORD_CONTEXT_PLACEHOLDER, block, 1)
+            prompt = prompt.replace(USER_CONTEXT_PLACEHOLDER, block, 1)
         return _strip_context_placeholders(prompt)
 
-    block = _build_combined_block(session_text, discord_text)
+    block = _build_combined_block(session_text, user_text)
     return _insert_before_required_summary(prompt, block)
 
 
@@ -124,7 +124,7 @@ def _strip_context_placeholders(prompt: str) -> str:
     return (
         prompt.replace(DYNAMIC_CONTEXT_PLACEHOLDER, "")
         .replace(SESSION_CONTEXT_PLACEHOLDER, "")
-        .replace(DISCORD_CONTEXT_PLACEHOLDER, "")
+        .replace(USER_CONTEXT_PLACEHOLDER, "")
     )
 
 

@@ -6,17 +6,11 @@ import sys
 import tempfile
 import threading
 import time
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from pathlib import Path
 from typing import IO, Any, Callable
 
 from .backends import Backend, get_backend
-from .discord import DiscordClient
-from .discord_commands import (
-    DiscordCommand,
-    authorized_users_from_env,
-    parse_discord_messages,
-)
 from .phase_contract import build_state_machine, is_termination_gate
 from .forum import Forum
 from .events import EventSink, LoopfarmEvent, StreamEventSink
@@ -25,7 +19,6 @@ from .session_store import SessionStore
 from .templates import TemplateContext
 from .util import (
     CommandError,
-    env_flag,
     env_int,
     format_duration,
     new_session_id,
@@ -116,188 +109,6 @@ def _truncate_text(text: str, max_chars: int) -> str:
     return text[:limit].rstrip() + suffix
 
 
-def _chunk_text(text: str, max_chars: int) -> list[str]:
-    if not text:
-        return []
-    if max_chars <= 0:
-        return [text]
-    return [text[i : i + max_chars] for i in range(0, len(text), max_chars)]
-
-
-def _extract_claude_text(stream_json_path: Path) -> str:
-    if not stream_json_path.exists() or stream_json_path.stat().st_size == 0:
-        return ""
-
-    text_parts: list[str] = []
-    with stream_json_path.open("r", encoding="utf-8", errors="replace") as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                event = json.loads(line)
-            except Exception:
-                continue
-            if event.get("type") != "stream_event":
-                continue
-            ev = event.get("event", {})
-            if ev.get("type") != "content_block_delta":
-                continue
-            delta = ev.get("delta", {})
-            if delta.get("type") != "text_delta":
-                continue
-            text = delta.get("text") or ""
-            if text:
-                text_parts.append(text)
-    return "".join(text_parts).strip()
-
-
-def _extract_codex_text(jsonl_path: Path) -> str:
-    if not jsonl_path.exists() or jsonl_path.stat().st_size == 0:
-        return ""
-
-    parts: list[str] = []
-    with jsonl_path.open("r", encoding="utf-8", errors="replace") as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                event = json.loads(line)
-            except Exception:
-                continue
-            if event.get("type") != "item.completed":
-                continue
-            item = event.get("item")
-            if not isinstance(item, dict):
-                continue
-            if item.get("type") != "agent_message":
-                continue
-            text = str(item.get("text") or "")
-            if text.strip():
-                parts.append(text)
-    return "\n\n".join(parts).strip()
-
-
-def _extract_kimi_text(jsonl_path: Path) -> str:
-    if not jsonl_path.exists() or jsonl_path.stat().st_size == 0:
-        return ""
-
-    parts: list[str] = []
-    with jsonl_path.open("r", encoding="utf-8", errors="replace") as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                msg = json.loads(line)
-            except Exception:
-                continue
-            if msg.get("role") != "assistant":
-                continue
-            for block in msg.get("content") or []:
-                if isinstance(block, str):
-                    text = block
-                elif isinstance(block, dict) and block.get("type") == "text":
-                    text = block.get("text") or ""
-                else:
-                    text = ""
-                if text.strip():
-                    parts.append(text)
-    return "\n".join(parts).strip()
-
-
-class ForumPoller(threading.Thread):
-    def __init__(
-        self,
-        *,
-        forum: Forum,
-        discord: DiscordClient,
-        thread_id: str,
-        topics: list[str],
-        stop_event: threading.Event,
-        seen_ids: set[str],
-        debug: bool,
-    ) -> None:
-        super().__init__(daemon=True)
-        self._forum = forum
-        self._discord = discord
-        self._thread_id = thread_id
-        self._topics = topics
-        self._stop_event = stop_event
-        self._seen_ids = seen_ids
-        self._debug = debug
-        self._poll_limit = max(
-            1,
-            env_int("LOOPFARM_FORUM_POLL_LIMIT", env_int("LOOPFARM_JWZ_POLL_LIMIT", 25)),
-        )
-        self._poll_max = max(
-            self._poll_limit,
-            env_int("LOOPFARM_FORUM_POLL_MAX", env_int("LOOPFARM_JWZ_POLL_MAX", 200)),
-        )
-
-    def run(self) -> None:
-        while not self._stop_event.is_set():
-            for topic in self._topics:
-                self._post_topic(topic)
-            self._stop_event.wait(15)
-
-    def _post_topic(self, topic: str) -> None:
-        messages, truncated = self._read_topic_window(topic)
-        for msg in messages:
-            msg_id = msg.get("id")
-            if not msg_id or msg_id in self._seen_ids:
-                continue
-            body = msg.get("body") or ""
-            if not body:
-                continue
-            try:
-                payload = json.loads(body)
-            except Exception:
-                continue
-            formatted = ""
-            if "decision" in payload:
-                decision = payload.get("decision")
-                summary = payload.get("summary") or "No summary"
-                if decision == "COMPLETE":
-                    formatted = f"✅ **Complete**: {summary}"
-                else:
-                    formatted = f"📋 **{decision}**: {summary}"
-            elif "status" in payload:
-                formatted = f"📊 Status: {payload.get('status')}"
-
-            if formatted:
-                if self._discord.post(formatted, thread_id=self._thread_id):
-                    self._seen_ids.add(str(msg_id))
-        if truncated:
-            warning = (
-                f"⚠️ **Discord status backlog**: `{topic}` has more than "
-                f"{self._poll_max} unread messages. Some may be skipped."
-            )
-            self._discord.post(warning, thread_id=self._thread_id)
-
-    def _read_topic_window(self, topic: str) -> tuple[list[dict[str, Any]], bool]:
-        limit = self._poll_limit
-        messages = self._forum.read_json(topic, limit=limit)
-        if not self._seen_ids:
-            truncated = len(messages) >= limit and limit >= self._poll_max
-            return messages, truncated
-
-        while True:
-            if len(messages) < limit or self._contains_seen_id(messages):
-                return messages, False
-            if limit >= self._poll_max:
-                return messages, True
-            limit = min(limit * 2, self._poll_max)
-            messages = self._forum.read_json(topic, limit=limit)
-
-    def _contains_seen_id(self, messages: list[dict[str, Any]]) -> bool:
-        for msg in messages:
-            msg_id = msg.get("id")
-            if msg_id and str(msg_id) in self._seen_ids:
-                return True
-        return False
-
 class LoopfarmRunner:
     def __init__(
         self,
@@ -314,14 +125,9 @@ class LoopfarmRunner:
         self.stderr = io.stderr if io and io.stderr else sys.stderr
         self.forum = Forum.from_workdir(cfg.repo_root)
         self.session_store = SessionStore(self.forum)
-        self.discord = DiscordClient.from_env()
-        self.discord_thread_id = os.environ.get("DISCORD_THREAD_ID") or ""
-        self.discord_last_seen_id = ""
-        self.pending_discord_context: list[str] = []
-        self.pending_discord_commands: list[DiscordCommand] = []
-        self.discord_context_override = ""
+        self.session_context_override = ""
         self.paused = False
-        self.seen_forum_ids: set[str] = set()
+        self._last_control_signature = ""
         self.last_phase = "startup"
         self.start_monotonic: float = 0.0
         self.session_status = "interrupted"
@@ -397,10 +203,7 @@ class LoopfarmRunner:
                 "loop_report_target_phases": list(self.cfg.loop_report_target_phases),
             },
         )
-
-        self._ensure_discord_thread(session_id, start_time)
-        self._load_discord_cursor()
-        self._load_discord_context_override(session_id)
+        self._load_session_context_override(session_id)
 
         self._print(
             f"{BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━{RESET}"
@@ -419,7 +222,6 @@ class LoopfarmRunner:
                 self._planning_phase(session_id)
             else:
                 self._print(f"\n{GRAY}◆ PLANNING{RESET} {GRAY}(skipped){RESET}\n")
-                self._discord_post("**◆ PLANNING** skipped")
                 reason = "skip_plan"
                 if self.cfg.loop_steps is not None and not self.cfg.loop_plan_once:
                     reason = "loop_spec"
@@ -454,11 +256,8 @@ class LoopfarmRunner:
             title = "Session Interrupted"
             if self.session_status == "stopped":
                 title = "Session Stopped"
-            self._discord_post(
-                f"⚠️ **{title}**\n\n"
-                f"**Duration:** {duration_str}\n"
-                f"**Last Phase:** {self.last_phase}\n"
-                f"**Ended:** {end_time}"
+            self._print(
+                f"{YELLOW}⚠ {title}: duration={duration_str}, phase={self.last_phase}, ended={end_time}{RESET}"
             )
             self._emit(
                 "session.end",
@@ -488,352 +287,17 @@ class LoopfarmRunner:
                 },
             )
 
-    def _ensure_discord_thread(self, session_id: str, start_time: str) -> None:
-        if self.discord_thread_id:
-            return
-        if not self.discord.webhook:
-            return
-
-        prompt = self.cfg.prompt
-        thread_name = f"{session_id}: {prompt[:70]}"
-        if len(prompt) > 70:
-            thread_name += "..."
-
-        bidir_hint = ""
-        if self.discord.bot_token:
-            bidir_hint = (
-                "\n\n💬 **Interactive Mode:** Post messages to this thread to inject context into subsequent phases."
-                "\n\n⏸️ **Loop Control:** `!pause`, `!resume`, `!stop`"
-                "\n\n🧭 **Context:** `!context show`, `!context set …`, `!context clear`"
-                "\n\n🗣️ **One-off Chat:** `!chat …` or `!ask …` (use `!chat reset` to clear history)"
-            )
-
-        initial_msg = (
-            f"**Session Started** `{session_id}`\n\n"
-            "**Prompt:**\n"
-            "```\n"
-            f"{prompt}\n"
-            "```\n\n"
-            f"**Started:** {start_time}{bidir_hint}"
-        )
-
-        thread_id = self.discord.create_thread(thread_name, initial_msg)
-        if not thread_id:
-            if not self.discord.webhook:
-                self._print(
-                    f"{YELLOW}⚠ Discord notifications disabled (LOOPFARM_DISCORD_WEBHOOK not set){RESET}"
-                )
-            else:
-                self._print(
-                    f"{YELLOW}⚠ Discord thread creation failed - set LOOPFARM_DISCORD_DEBUG=1 for details{RESET}"
-                )
-            return
-        self.discord_thread_id = thread_id
-        os.environ["DISCORD_THREAD_ID"] = thread_id
-
-    def _discord_post(self, content: str) -> bool:
-        if not self.discord_thread_id:
-            return False
-        return self.discord.post(content, thread_id=self.discord_thread_id)
-
-    def _discord_post_chunks(self, content: str) -> None:
-        if not content.strip():
-            return
-        max_chars = max(200, env_int("LOOPFARM_DISCORD_CHUNK_CHARS", 1900))
-        for chunk in _chunk_text(content, max_chars):
-            self._discord_post(chunk)
-
-    def _post_forum_status(self, topic: str) -> None:
-        if not self.discord_thread_id:
-            return
-        messages = self.forum.read_json(topic, limit=5)
-        for msg in messages:
-            msg_id = msg.get("id")
-            if not msg_id or str(msg_id) in self.seen_forum_ids:
-                continue
-            body = msg.get("body") or ""
-            if not body:
-                continue
-            try:
-                payload = json.loads(body)
-            except Exception:
-                continue
-            formatted = ""
-            if "decision" in payload:
-                decision = payload.get("decision")
-                summary = payload.get("summary") or "No summary"
-                if decision == "COMPLETE":
-                    formatted = f"✅ **Complete**: {summary}"
-                else:
-                    formatted = f"📋 **{decision}**: {summary}"
-            elif "status" in payload:
-                formatted = f"📊 Status: {payload.get('status')}"
-            if formatted:
-                if self._discord_post(formatted):
-                    self.seen_forum_ids.add(str(msg_id))
-
-    def _collect_discord_messages(self) -> None:
-        if not self.discord.bot_token or not self.discord_thread_id:
-            return
-
-        bot_id = self.discord.get_bot_user_id() or ""
-        messages = self.discord.read_messages(
-            self.discord_thread_id, after_id=self.discord_last_seen_id
-        )
-        if not messages:
-            return
-
-        result = parse_discord_messages(
-            messages,
-            bot_user_id=bot_id,
-            authorized_users=authorized_users_from_env(),
-        )
-
-        if result.newest_id:
-            self.discord_last_seen_id = str(result.newest_id)
-            if self.session_id:
-                self.session_store.set_discord_cursor(
-                    self.discord_thread_id, self.discord_last_seen_id
-                )
-
-        context_count = 0
-        for line, author in zip(result.context_lines, result.context_authors):
-            self.pending_discord_context.append(line)
-            if self.session_id:
-                self.session_store.set_session_context(
-                    self.session_id,
-                    line,
-                    author=author,
-                )
-            context_count += 1
-
-        if result.commands:
-            self.pending_discord_commands.extend(result.commands)
-
-        if context_count:
-            self._discord_post(
-                f"📨 Received {context_count} message(s) from thread. "
-                "Incorporating into next phase."
-            )
-
-    def _flush_discord_context(self) -> str:
-        if not self.pending_discord_context:
-            return ""
-        ctx = "\n".join(self.pending_discord_context).strip()
-        self.pending_discord_context = []
-        return ctx
-
-    def _set_discord_context_override(
-        self, text: str, *, author: str | None
-    ) -> None:
-        self.discord_context_override = text
+    def _set_session_context_override(self, text: str, *, author: str | None) -> None:
+        self.session_context_override = text
         if self.session_id:
             self.session_store.update_session_meta(
                 self.session_id,
-                {"discord_context": text},
+                {"session_context": text},
                 author=author,
             )
 
-    def _clear_discord_context_override(self, *, author: str | None) -> None:
-        self.discord_context_override = ""
-        if self.session_id:
-            self.session_store.update_session_meta(
-                self.session_id,
-                {"discord_context": ""},
-                author=author,
-            )
-
-    def _discord_command_help(self) -> str:
-        return (
-            "🧭 **Loopfarm Commands**\n\n"
-            "- `!pause` / `!resume` / `!stop`\n"
-            "- `!context show` / `!context set …` / `!context clear`\n"
-            "- `!chat …` / `!ask …` (one-off chat)\n"
-            "- `!chat reset`\n"
-            "- `!chat backend <name>` / `!chat model <name>`\n"
-            "- Prefix with `!loopfarm` (or `!loopfarm`) if desired"
-        )
-
-    def _drain_discord_commands(self) -> list[DiscordCommand]:
-        if not self.pending_discord_commands:
-            return []
-        commands = self.pending_discord_commands
-        self.pending_discord_commands = []
-        return commands
-
-    def _chat_history_limit(self) -> int:
-        return max(0, env_int("LOOPFARM_CHAT_HISTORY_LIMIT", 12))
-
-    def _format_chat_history(self, history: list[dict[str, Any]]) -> str:
-        lines: list[str] = []
-        for turn in history:
-            role = str(turn.get("role") or "user").lower()
-            content = str(turn.get("content") or "").strip()
-            if not content:
-                continue
-            label = "User" if role == "user" else "Assistant"
-            lines.append(f"{label}: {content}")
-        return "\n".join(lines).strip()
-
-    def _build_chat_prompt(
-        self,
-        *,
-        session_id: str,
-        message: str,
-        history: list[dict[str, Any]],
-    ) -> str:
-        lines = [
-            "You are answering a one-off chat request from a human monitoring a Loopfarm loop.",
-            "Do not advance the loop or modify files; respond conversationally and concisely.",
-            "",
-            f"Primary task:\n{self.cfg.prompt}",
-        ]
-
-        session_ctx = self.discord_context_override.strip()
-        if session_ctx:
-            lines.extend(
-                [
-                    "",
-                    "Pinned session context:",
-                    "```",
-                    session_ctx,
-                    "```",
-                ]
-            )
-
-        history_text = self._format_chat_history(history)
-        if history_text:
-            lines.extend(["", "Chat history:", history_text])
-
-        lines.extend(["", f"User: {message}", "Assistant:"])
-        return "\n".join(lines).strip()
-
-    def _extract_chat_response(
-        self, backend: Backend, output_path: Path, last_message_path: Path
-    ) -> str:
-        if backend.name == "claude":
-            return _extract_claude_text(output_path)
-        if backend.name == "codex":
-            return _extract_codex_text(output_path)
-        if backend.name == "kimi":
-            return _extract_kimi_text(output_path)
-        return ""
-
-    def _run_chat(
-        self,
-        *,
-        session_id: str,
-        message: str,
-        author: str | None,
-    ) -> None:
-        chat_state = self.session_store.get_chat_state(session_id) or {}
-        history = chat_state.get("messages") or []
-        if not isinstance(history, list):
-            history = []
-
-        history_limit = self._chat_history_limit()
-        if history_limit and len(history) > history_limit:
-            history = history[-history_limit:]
-
-        backend_name = str(
-            chat_state.get("backend") or self._cli_for_phase("forward")
-        ).strip()
-        try:
-            backend = get_backend(backend_name)
-        except KeyError:
-            self._discord_post(
-                f"⚠️ **Chat backend** `{backend_name}` is not registered."
-            )
-            return
-
-        cfg = self.cfg
-        chat_model = str(chat_state.get("model") or "").strip()
-        if chat_model:
-            cfg = replace(cfg, model_override=chat_model)
-
-        prompt = self._build_chat_prompt(
-            session_id=session_id, message=message, history=history
-        )
-
-        user_turn = {
-            "role": "user",
-            "content": message,
-            "author": author or "",
-            "timestamp": utc_now_iso(),
-        }
-        self.session_store.append_chat_turn(
-            session_id, user_turn, author=author, limit=history_limit
-        )
-
-        out_path = self._tmp_path(prefix="chat_", suffix=".log")
-        last_path = self._tmp_path(prefix="chat_", suffix=".last.txt")
-        try:
-            self._discord_post("💬 **Chat** running…")
-            ok = backend.run(
-                phase="chat",
-                prompt=prompt,
-                output_path=out_path,
-                last_message_path=last_path,
-                cfg=cfg,
-            )
-            response = self._extract_chat_response(
-                backend, out_path, last_path
-            )
-        finally:
-            self._cleanup_paths(out_path, last_path)
-
-        if not ok:
-            error_msg = "⚠️ **Chat** failed. Check runner logs for details."
-            self.session_store.append_chat_turn(
-                session_id,
-                {
-                    "role": "assistant",
-                    "content": error_msg,
-                    "author": backend.name,
-                    "timestamp": utc_now_iso(),
-                },
-                author=None,
-                limit=history_limit,
-            )
-            self._discord_post(error_msg)
-            return
-
-        if not response.strip():
-            response = "_(no response captured from agent output)_"
-
-        self.session_store.append_chat_turn(
-            session_id,
-            {
-                "role": "assistant",
-                "content": response,
-                "author": backend.name,
-                "timestamp": utc_now_iso(),
-            },
-            author=None,
-            limit=history_limit,
-        )
-        self._discord_post_chunks(response)
-
-    def _post_control_event(
-        self,
-        *,
-        session_id: str,
-        phase: str,
-        iteration: int | None,
-        status: str,
-        command: str,
-        author: str | None,
-        content: str | None,
-    ) -> None:
-        self.session_store.set_control_state(
-            session_id,
-            status=status,
-            command=command,
-            phase=phase,
-            iteration=iteration,
-            author=author,
-            content=content,
-        )
+    def _clear_session_context_override(self, *, author: str | None) -> None:
+        self._set_session_context_override("", author=author)
 
     def _post_session_state(
         self, *, session_id: str, phase: str, status: str, iteration: int | None
@@ -847,212 +311,129 @@ class LoopfarmRunner:
             payload["iteration"] = iteration
         self.session_store.update_session_meta(session_id, payload, author="runner")
 
-    def _handle_discord_commands(
-        self, *, session_id: str, phase: str, iteration: int | None
+    @staticmethod
+    def _control_signature(state: dict[str, Any]) -> str:
+        parts = [
+            str(state.get("timestamp") or ""),
+            str(state.get("command") or ""),
+            str(state.get("status") or ""),
+            str(state.get("phase") or ""),
+            str(state.get("iteration") or ""),
+            str(state.get("author") or ""),
+            str(state.get("content") or ""),
+        ]
+        return "|".join(parts)
+
+    def _read_control_state(self, session_id: str) -> dict[str, Any] | None:
+        state = self.session_store.get_control_state(session_id)
+        if not state:
+            return None
+        signature = self._control_signature(state)
+        if not signature or signature == self._last_control_signature:
+            return None
+        self._last_control_signature = signature
+        return state
+
+    def _apply_control_state(
+        self,
+        *,
+        state: dict[str, Any],
+        session_id: str,
+        phase: str,
+        iteration: int | None,
     ) -> None:
-        commands = self._drain_discord_commands()
-        for cmd in commands:
-            command = cmd.kind
-            author = cmd.author or None
-            content = cmd.content or None
+        command = str(state.get("command") or "").strip().lower()
+        content = str(state.get("content") or "").strip()
+        author = str(state.get("author") or "").strip() or None
 
-            if command == "pause" and not self.paused:
-                self.paused = True
-                self._post_control_event(
-                    session_id=session_id,
-                    phase=phase,
-                    iteration=iteration,
-                    status="paused",
-                    command="pause",
-                    author=author,
-                    content=content,
-                )
-                self._post_session_state(
-                    session_id=session_id,
-                    phase=phase,
-                    status="paused",
-                    iteration=iteration,
-                )
-                self._discord_post(
-                    f"⏸️ **Paused** before {phase.upper()}."
-                    " Send `!resume` to continue or `!stop` to end."
-                )
-                self._emit(
-                    "session.pause",
-                    phase=phase,
-                    iteration=iteration,
-                    payload={"command": "pause", "author": author, "content": content},
-                )
-                self._print(f"\n{YELLOW}⏸ Paused before {phase}.{RESET}")
-                continue
+        if command == "pause" and not self.paused:
+            self.paused = True
+            self._post_session_state(
+                session_id=session_id,
+                phase=phase,
+                status="paused",
+                iteration=iteration,
+            )
+            self._emit(
+                "session.pause",
+                phase=phase,
+                iteration=iteration,
+                payload={"command": "pause", "author": author, "content": content},
+            )
+            self._print(f"\n{YELLOW}⏸ Paused before {phase}.{RESET}")
+            return
 
-            if command == "resume" and self.paused:
-                self.paused = False
-                self._post_control_event(
-                    session_id=session_id,
-                    phase=phase,
-                    iteration=iteration,
-                    status="resumed",
-                    command="resume",
-                    author=author,
-                    content=content,
-                )
-                self._post_session_state(
-                    session_id=session_id,
-                    phase=phase,
-                    status="running",
-                    iteration=iteration,
-                )
-                self._discord_post(
-                    f"▶️ **Resumed** - continuing {phase.upper()}."
-                )
-                self._emit(
-                    "session.resume",
-                    phase=phase,
-                    iteration=iteration,
-                    payload={"command": "resume", "author": author, "content": content},
-                )
-                self._print(f"{GREEN}▶ Resumed.{RESET}")
-                continue
+        if command == "resume" and self.paused:
+            self.paused = False
+            self._post_session_state(
+                session_id=session_id,
+                phase=phase,
+                status="running",
+                iteration=iteration,
+            )
+            self._emit(
+                "session.resume",
+                phase=phase,
+                iteration=iteration,
+                payload={"command": "resume", "author": author, "content": content},
+            )
+            self._print(f"{GREEN}▶ Resumed.{RESET}")
+            return
 
-            if command == "stop":
-                self.session_status = "stopped"
-                self._post_control_event(
-                    session_id=session_id,
-                    phase=phase,
-                    iteration=iteration,
-                    status="stopped",
-                    command="stop",
-                    author=author,
-                    content=content,
-                )
-                self._post_session_state(
-                    session_id=session_id,
-                    phase=phase,
-                    status="stopped",
-                    iteration=iteration,
-                )
-                self._discord_post("⛔ **Stop requested** - ending session.")
-                self._emit(
-                    "session.stop",
-                    phase=phase,
-                    iteration=iteration,
-                    payload={"command": "stop", "author": author, "content": content},
-                )
-                self._print(f"\n{RED}⛔ Stop requested.{RESET}")
-                raise StopRequested()
+        if command == "stop":
+            self.session_status = "stopped"
+            self._post_session_state(
+                session_id=session_id,
+                phase=phase,
+                status="stopped",
+                iteration=iteration,
+            )
+            self._emit(
+                "session.stop",
+                phase=phase,
+                iteration=iteration,
+                payload={"command": "stop", "author": author, "content": content},
+            )
+            self._print(f"\n{RED}⛔ Stop requested.{RESET}")
+            raise StopRequested()
 
-            if command == "context_show":
-                ctx = self.discord_context_override.strip()
-                if not ctx:
-                    self._discord_post(
-                        "🧭 **Context** is empty. Use `!context set …` to set it."
-                    )
-                    continue
-                ctx = _truncate_text(ctx, 1700)
-                self._discord_post(f"🧭 **Context**:\n```\n{ctx}\n```")
-                continue
+        if command == "context_set":
+            if content:
+                self._set_session_context_override(content, author=author)
+            return
 
-            if command == "context_set":
-                new_ctx = (cmd.args or "").strip()
-                if not new_ctx:
-                    self._discord_post(
-                        "⚠️ **Context set** needs text. Example: `!context set …`."
-                    )
-                    continue
-                self._set_discord_context_override(new_ctx, author=author)
-                self._discord_post(
-                    f"🧭 **Context updated** ({len(new_ctx)} chars)."
-                )
-                continue
-
-            if command == "context_clear":
-                if self.discord_context_override.strip():
-                    self._clear_discord_context_override(author=author)
-                    self._discord_post("🧹 **Context cleared**.")
-                else:
-                    self._discord_post("🧹 **Context** already empty.")
-                continue
-
-            if command == "chat":
-                message = (cmd.args or "").strip()
-                if not message:
-                    self._discord_post(
-                        "⚠️ **Chat** needs a prompt. Example: `!chat How do we …?`."
-                    )
-                    continue
-
-                lowered = message.lower()
-                if lowered in {"reset", "clear"}:
-                    self.session_store.update_chat_state(
-                        session_id, {"messages": []}, author=author
-                    )
-                    self._discord_post("🧹 **Chat history cleared**.")
-                    continue
-
-                parts = message.split(None, 1)
-                head = parts[0].lower()
-                tail = parts[1].strip() if len(parts) > 1 else ""
-
-                if head == "backend":
-                    if not tail:
-                        self._discord_post(
-                            "⚠️ **Chat backend** needs a name. Example: `!chat backend codex`."
-                        )
-                        continue
-                    try:
-                        get_backend(tail)
-                    except KeyError:
-                        self._discord_post(
-                            f"⚠️ **Chat backend** `{tail}` is not registered."
-                        )
-                        continue
-                    self.session_store.update_chat_state(
-                        session_id, {"backend": tail}, author=author
-                    )
-                    self._discord_post(f"✅ **Chat backend** set to `{tail}`.")
-                    continue
-
-                if head == "model":
-                    if not tail:
-                        self._discord_post(
-                            "⚠️ **Chat model** needs a name. Example: `!chat model gpt-5.2`."
-                        )
-                        continue
-                    if tail.lower() in {"clear", "reset", "default"}:
-                        self.session_store.update_chat_state(
-                            session_id, {"model": ""}, author=author
-                        )
-                        self._discord_post("✅ **Chat model** cleared.")
-                        continue
-                    self.session_store.update_chat_state(
-                        session_id, {"model": tail}, author=author
-                    )
-                    self._discord_post(f"✅ **Chat model** set to `{tail}`.")
-                    continue
-
-                self._run_chat(session_id=session_id, message=message, author=author)
-                continue
-
-            if command == "help":
-                self._discord_post(self._discord_command_help())
+        if command == "context_clear":
+            self._clear_session_context_override(author=author)
 
     def _control_checkpoint(
         self, *, session_id: str, phase: str, iteration: int | None
     ) -> None:
-        self._collect_discord_messages()
-        self._handle_discord_commands(
-            session_id=session_id, phase=phase, iteration=iteration
-        )
+        state = self._read_control_state(session_id)
+        if state:
+            self._apply_control_state(
+                state=state,
+                session_id=session_id,
+                phase=phase,
+                iteration=iteration,
+            )
 
         poll_seconds = max(1, env_int("LOOPFARM_CONTROL_POLL_SECONDS", 5))
         while self.paused:
             self._sleep(poll_seconds)
-            self._collect_discord_messages()
-            self._handle_discord_commands(
-                session_id=session_id, phase=phase, iteration=iteration
-            )
+            state = self._read_control_state(session_id)
+            if state:
+                self._apply_control_state(
+                    state=state,
+                    session_id=session_id,
+                    phase=phase,
+                    iteration=iteration,
+                )
 
+    def _load_session_context_override(self, session_id: str) -> None:
+        meta = self.session_store.get_session_meta(session_id) or {}
+        ctx = meta.get("session_context")
+        if isinstance(ctx, str) and ctx.strip():
+            self.session_context_override = ctx
 
     def _cli_for_phase(self, phase: str) -> str:
         if phase == "planning" and self.cfg.plan_cli:
@@ -1128,7 +509,6 @@ class LoopfarmRunner:
         self._print(
             f"{GRAY}─────────────────────────────────────────────────────────{RESET}\n"
         )
-        self._discord_post(f"**◆ PLANNING** started at {phase_start}")
         self._emit(
             "phase.start",
             phase="planning",
@@ -1144,13 +524,9 @@ class LoopfarmRunner:
         out_path = self._tmp_path(prefix="planning_", suffix=".jsonl")
         last_path = self._tmp_path(prefix="planning_", suffix=".last.txt")
 
-        stop_event, poller = self._start_poller(session_id)
-        try:
-            ok = self._run_agent(
-                "planning", planning_prompt, out_path, last_path, iteration=None
-            )
-        finally:
-            self._stop_poller(stop_event, poller)
+        ok = self._run_agent(
+            "planning", planning_prompt, out_path, last_path, iteration=None
+        )
 
         if not ok:
             self._emit(
@@ -1163,7 +539,6 @@ class LoopfarmRunner:
                 },
             )
             self._print(f"{RED}✗ Planning failed{RESET}")
-            self._discord_post("**◆ PLANNING** ❌ failed")
             raise SystemExit(1)
 
         summary = self._phase_summary("planning", out_path, last_path)
@@ -1179,25 +554,21 @@ class LoopfarmRunner:
         )
         self._store_phase_summary(session_id, "planning", 0, summary)
         self._cleanup_paths(out_path, last_path)
-        if summary:
-            self._discord_post(f"**◆ PLANNING** Summary:\n{summary}")
-        else:
-            self._discord_post(f"**◆ PLANNING** ✅ completed at {utc_now_iso()[11:19]}")
 
-    def _phase_presentation(self, phase: str) -> tuple[str, str, str]:
+    def _phase_presentation(self, phase: str) -> tuple[str, str]:
         if phase == "forward":
-            return "▶ FORWARD", "**▶ FORWARD**", GREEN
+            return "▶ FORWARD", GREEN
         if phase == "research":
-            return "◆ RESEARCH", "**◆ RESEARCH**", CYAN
+            return "◆ RESEARCH", CYAN
         if phase == "curation":
-            return "◆ CURATION", "**◆ CURATION**", WHITE
+            return "◆ CURATION", WHITE
         if phase == "documentation":
-            return "◆ DOCUMENTATION", "**◆ DOCUMENTATION**", BLUE
+            return "◆ DOCUMENTATION", BLUE
         if phase == "architecture":
-            return "◆ ARCHITECTURE", "**◆ ARCHITECTURE**", YELLOW
+            return "◆ ARCHITECTURE", YELLOW
         if phase == "backward":
-            return "◀ BACKWARD", "**◀ BACKWARD**", MAGENTA
-        return phase.upper(), f"**{phase.upper()}**", WHITE
+            return "◀ BACKWARD", MAGENTA
+        return phase.upper(), WHITE
 
     def _run_operational_phase(
         self,
@@ -1210,7 +581,7 @@ class LoopfarmRunner:
         run_total: int | None = None,
     ) -> str:
         fail_count = 0
-        label, discord_label, color = self._phase_presentation(phase)
+        label, color = self._phase_presentation(phase)
         run_suffix = ""
         if run_index is not None and run_total is not None:
             run_suffix = f" ({run_index}/{run_total})"
@@ -1224,9 +595,6 @@ class LoopfarmRunner:
             self._print(f"\n{color}{label}{RESET}{run_suffix} {GRAY}{phase_start}{RESET}")
             self._print(
                 f"{GRAY}─────────────────────────────────────────────────────────{RESET}\n"
-            )
-            self._discord_post(
-                f"{discord_label} #{iteration}{run_suffix} started at {phase_start}"
             )
             payload: dict[str, Any] = {
                 "started": phase_start,
@@ -1249,17 +617,13 @@ class LoopfarmRunner:
             out_path = self._tmp_path(prefix=f"{phase}_", suffix=".log")
             last_path = self._tmp_path(prefix=f"{phase}_", suffix=".last.txt")
             try:
-                stop_event, poller = self._start_poller(session_id)
-                try:
-                    ok = self._run_agent(
-                        phase,
-                        phase_prompt,
-                        out_path,
-                        last_path,
-                        iteration=iteration,
-                    )
-                finally:
-                    self._stop_poller(stop_event, poller)
+                ok = self._run_agent(
+                    phase,
+                    phase_prompt,
+                    out_path,
+                    last_path,
+                    iteration=iteration,
+                )
 
                 if ok:
                     summary = self._phase_summary(phase, out_path, last_path)
@@ -1275,15 +639,6 @@ class LoopfarmRunner:
                         },
                     )
                     self._store_phase_summary(session_id, phase, iteration, summary)
-                    if summary:
-                        self._discord_post(
-                            f"{discord_label} #{iteration}{run_suffix} Summary:\n{summary}"
-                        )
-                    else:
-                        self._discord_post(
-                            f"{discord_label} #{iteration}{run_suffix} ✅ completed at {utc_now_iso()[11:19]}"
-                        )
-                    self._post_forum_status(f"loopfarm:status:{session_id}")
                     return summary
 
                 self._emit(
@@ -1302,9 +657,6 @@ class LoopfarmRunner:
                     self._print(
                         f"{RED}✗ Too many failures in {phase}, waiting 15 minutes...{RESET}"
                     )
-                    self._discord_post(
-                        f"{discord_label} #{iteration}{run_suffix} ⚠️ failed ({fail_count} consecutive), waiting 15 minutes before retry..."
-                    )
                     self._sleep(900)
                     fail_count = 0
                 else:
@@ -1315,14 +667,6 @@ class LoopfarmRunner:
     def _mark_complete(self, *, iteration: int, summary: str) -> int:
         self.session_status = "complete"
         duration = max(0, int(time.monotonic() - self.start_monotonic))
-        duration_str = format_duration(duration)
-        self._discord_post(
-            "✅ **Session Complete**\n\n"
-            f"**Duration:** {duration_str}\n"
-            f"**Iterations:** {iteration}\n"
-            f"**Summary:** {summary or 'No summary provided'}\n"
-            f"**Ended:** {utc_now_iso()}"
-        )
         self._emit(
             "session.complete",
             payload={
@@ -1426,9 +770,6 @@ class LoopfarmRunner:
             self._print(
                 f"{GRAY}─────────────────────────────────────────────────────────{RESET}\n"
             )
-            self._discord_post(
-                f"**▶ FORWARD** #{loop_iteration} started at {phase_start}"
-            )
             self._emit(
                 "phase.start",
                 phase="forward",
@@ -1446,17 +787,13 @@ class LoopfarmRunner:
             forward_last = self._tmp_path(prefix="forward_", suffix=".last.txt")
             try:
                 while True:
-                    stop_event, poller = self._start_poller(session_id)
-                    try:
-                        ok = self._run_agent(
-                            "forward",
-                            forward_prompt,
-                            forward_out,
-                            forward_last,
-                            iteration=loop_iteration,
-                        )
-                    finally:
-                        self._stop_poller(stop_event, poller)
+                    ok = self._run_agent(
+                        "forward",
+                        forward_prompt,
+                        forward_out,
+                        forward_last,
+                        iteration=loop_iteration,
+                    )
 
                     if ok:
                         fail_count = 0
@@ -1476,9 +813,6 @@ class LoopfarmRunner:
                     if fail_count >= 3:
                         self._print(
                             f"{RED}✗ Too many failures, waiting 15 minutes...{RESET}"
-                        )
-                        self._discord_post(
-                            f"**▶ FORWARD** #{loop_iteration} ⚠️ failed ({fail_count} consecutive), waiting 15 minutes before retry..."
                         )
                         self._sleep(900)
                         fail_count = 0
@@ -1517,19 +851,8 @@ class LoopfarmRunner:
                         "last_message_path": str(forward_last),
                     },
                 )
-                if forward_summary:
-                    self._discord_post(
-                        f"**▶ FORWARD** #{loop_iteration} Summary:\n{forward_summary}"
-                    )
-                else:
-                    self._discord_post(
-                        f"**▶ FORWARD** #{loop_iteration} ✅ completed at {utc_now_iso()[11:19]}"
-                    )
             finally:
                 self._cleanup_paths(forward_out, forward_last)
-
-            # Post statuses
-            self._post_forum_status(f"loopfarm:status:{session_id}")
 
             # Backward (runs every backward_interval iterations)
             run_backward = loop_iteration % self.cfg.backward_interval == 0
@@ -1555,9 +878,6 @@ class LoopfarmRunner:
             self._print(
                 f"{GRAY}─────────────────────────────────────────────────────────{RESET}\n"
             )
-            self._discord_post(
-                f"**◀ BACKWARD** #{loop_iteration} started at {phase_start}"
-            )
             self._emit(
                 "phase.start",
                 phase="backward",
@@ -1577,17 +897,13 @@ class LoopfarmRunner:
             backward_last = self._tmp_path(prefix="backward_", suffix=".last.txt")
             try:
                 while True:
-                    stop_event, poller = self._start_poller(session_id)
-                    try:
-                        ok = self._run_agent(
-                            "backward",
-                            backward_prompt,
-                            backward_out,
-                            backward_last,
-                            iteration=loop_iteration,
-                        )
-                    finally:
-                        self._stop_poller(stop_event, poller)
+                    ok = self._run_agent(
+                        "backward",
+                        backward_prompt,
+                        backward_out,
+                        backward_last,
+                        iteration=loop_iteration,
+                    )
 
                     if ok:
                         fail_count = 0
@@ -1607,9 +923,6 @@ class LoopfarmRunner:
                     if fail_count >= 3:
                         self._print(
                             f"{RED}✗ Too many failures, waiting 15 minutes...{RESET}"
-                        )
-                        self._discord_post(
-                            f"**◀ BACKWARD** #{loop_iteration} ⚠️ failed ({fail_count} consecutive), waiting 15 minutes before retry..."
                         )
                         self._sleep(900)
                         fail_count = 0
@@ -1633,19 +946,8 @@ class LoopfarmRunner:
                 self._store_phase_summary(
                     session_id, "backward", loop_iteration, backward_summary
                 )
-                if backward_summary:
-                    self._discord_post(
-                        f"**◀ BACKWARD** #{loop_iteration} Summary:\n{backward_summary}"
-                    )
-                else:
-                    self._discord_post(
-                        f"**◀ BACKWARD** #{loop_iteration} ✅ completed at {utc_now_iso()[11:19]}"
-                    )
             finally:
                 self._cleanup_paths(backward_out, backward_last)
-
-            # Post statuses
-            self._post_forum_status(f"loopfarm:status:{session_id}")
 
             # Completion check
             decision, summary = self._read_completion(session_id)
@@ -1679,8 +981,8 @@ class LoopfarmRunner:
         )
         return assemble_prompt(
             base,
-            session_context=self.discord_context_override,
-            discord_context=self._flush_discord_context(),
+            session_context=self.session_context_override,
+            user_context="",
             prompt_suffix=prompt_suffix,
         )
 
@@ -1726,52 +1028,6 @@ class LoopfarmRunner:
                 after = base[idx:].lstrip()
                 return f"{before}\n\n{section}\n\n{after}"
         return base.rstrip() + "\n\n" + section
-
-    def _start_poller(
-        self, session_id: str
-    ) -> tuple[threading.Event, ForumPoller | None]:
-        if not self.discord_thread_id:
-            return threading.Event(), None
-
-        stop_event = threading.Event()
-        topics = [
-            f"loopfarm:status:{session_id}",
-            f"loopfarm:status:{session_id}",
-        ]
-        poller = ForumPoller(
-            forum=self.forum,
-            discord=self.discord,
-            thread_id=self.discord_thread_id,
-            topics=topics,
-            stop_event=stop_event,
-            seen_ids=self.seen_forum_ids,
-            debug=env_flag("LOOPFARM_DISCORD_DEBUG"),
-        )
-        poller.start()
-        return stop_event, poller
-
-    def _load_discord_cursor(self) -> None:
-        if not self.discord_thread_id:
-            return
-        cursor = self.session_store.get_discord_cursor(self.discord_thread_id)
-        if not cursor:
-            return
-        message_id = cursor.get("message_id")
-        if message_id:
-            self.discord_last_seen_id = str(message_id)
-
-    def _load_discord_context_override(self, session_id: str) -> None:
-        meta = self.session_store.get_session_meta(session_id) or {}
-        ctx = meta.get("discord_context")
-        if isinstance(ctx, str) and ctx.strip():
-            self.discord_context_override = ctx
-
-    def _stop_poller(
-        self, stop_event: threading.Event, poller: ForumPoller | None
-    ) -> None:
-        stop_event.set()
-        if poller:
-            poller.join(timeout=2)
 
     def _phase_summary(
         self, phase: str, output_path: Path, last_message_path: Path

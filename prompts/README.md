@@ -80,7 +80,7 @@ Runtime placeholders:
 Optional split placeholders for operator context:
 
 - `{{SESSION_CONTEXT}}`
-- `{{DISCORD_USER_CONTEXT}}`
+- `{{USER_CONTEXT}}`
 
 ## Data Contracts
 

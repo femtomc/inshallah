@@ -3,78 +3,14 @@ from __future__ import annotations
 from dataclasses import replace
 from pathlib import Path
 
-import threading
+import pytest
 
-from loopfarm.runner import CodexPhaseModel, ForumPoller, LoopfarmConfig, LoopfarmRunner
-
-
-class FakeDiscord:
-    def __init__(self, messages: list[dict[str, object]]) -> None:
-        self.bot_token = "token"
-        self._messages = messages
-
-    def get_bot_user_id(self) -> str:
-        return "bot-id"
-
-    def read_messages(self, thread_id: str, *, after_id: str | None) -> list[dict[str, object]]:
-        return self._messages
-
-    def post(self, content: str, thread_id: str) -> bool:
-        return True
-
-
-class AckDiscord:
-    def __init__(self, messages: list[dict[str, object]]) -> None:
-        self.bot_token = "token"
-        self._messages = messages
-        self.posts: list[tuple[str, str]] = []
-
-    def get_bot_user_id(self) -> str:
-        return "bot-id"
-
-    def read_messages(self, thread_id: str, *, after_id: str | None) -> list[dict[str, object]]:
-        if after_id and self._messages and str(self._messages[0].get("id")) == after_id:
-            return []
-        return self._messages
-
-    def post(self, content: str, thread_id: str) -> bool:
-        self.posts.append((content, thread_id))
-        return True
-
-
-class FailDiscord:
-    def __init__(self) -> None:
-        self.bot_token = "token"
-
-    def post(self, content: str, thread_id: str) -> bool:
-        return False
-
-
-class FakeForum:
-    def __init__(self, messages: list[dict[str, object]]) -> None:
-        self._messages = messages
-
-    def read_json(self, topic: str, *, limit: int) -> list[dict[str, object]]:
-        return self._messages
-
-
-class WindowForum:
-    def __init__(self, messages: list[dict[str, object]]) -> None:
-        self._messages = messages
-        self.calls: list[int] = []
-
-    def read_json(self, topic: str, *, limit: int) -> list[dict[str, object]]:
-        self.calls.append(limit)
-        return self._messages[:limit]
-
-
-class CollectDiscord:
-    def __init__(self) -> None:
-        self.posts: list[str] = []
-
-    def post(self, content: str, thread_id: str) -> bool:
-        self.posts.append(content)
-        return True
+from loopfarm.runner import (
+    CodexPhaseModel,
+    LoopfarmConfig,
+    LoopfarmRunner,
+    StopRequested,
+)
 
 
 def _write_prompts(
@@ -99,12 +35,8 @@ def _write_prompts(
         lines.append("## Workflow")
         lines.append("Do the thing.")
         if include_required_summary:
-            lines.extend(
-                ["", "## Required Phase Summary", "Summary goes here.", ""]
-            )
-        (prompts_root / f"{phase}.md").write_text(
-            "\n".join(lines), encoding="utf-8"
-        )
+            lines.extend(["", "## Required Phase Summary", "Summary goes here.", ""])
+        (prompts_root / f"{phase}.md").write_text("\n".join(lines), encoding="utf-8")
 
 
 def _write_prompt_variants(
@@ -122,9 +54,7 @@ def _write_prompt_variants(
             .replace("{PROJECT}", "{{PROJECT}}")
         )
         lines = [header, "", "## Required Phase Summary", "Summary goes here."]
-        (prompts_root / f"{phase}.md").write_text(
-            "\n".join(lines), encoding="utf-8"
-        )
+        (prompts_root / f"{phase}.md").write_text("\n".join(lines), encoding="utf-8")
 
 
 def _cfg(tmp_path: Path) -> LoopfarmConfig:
@@ -142,65 +72,31 @@ def _cfg(tmp_path: Path) -> LoopfarmConfig:
     )
 
 
-def test_build_phase_prompt_injects_discord_context(tmp_path: Path) -> None:
+def test_build_phase_prompt_injects_session_context(tmp_path: Path) -> None:
     _write_prompts(tmp_path)
     runner = LoopfarmRunner(_cfg(tmp_path))
-    runner.pending_discord_context.append("hello")
+    runner.session_context_override = "Pinned guidance"
 
     prompt = runner._build_phase_prompt("sess", "planning")
 
     assert "PLANNING Example prompt sess test" in prompt
-    assert "Discord User Context" in prompt
-    assert "hello" in prompt
-    assert "## Required Phase Summary" in prompt
-    assert prompt.index("Discord User Context") < prompt.index(
-        "## Required Phase Summary"
-    )
-
-
-def test_build_phase_prompt_injects_pinned_context(tmp_path: Path) -> None:
-    _write_prompts(tmp_path)
-    runner = LoopfarmRunner(_cfg(tmp_path))
-    runner.discord_context_override = "Pinned guidance"
-
-    prompt = runner._build_phase_prompt("sess", "planning")
-
-    assert "Discord Session Context" in prompt
+    assert "## Session Context" in prompt
     assert "Pinned guidance" in prompt
-    assert "Discord User Context" not in prompt
-    assert prompt.index("Discord Session Context") < prompt.index(
-        "## Required Phase Summary"
-    )
+    assert "## Operator Context" not in prompt
+    assert "## Required Phase Summary" in prompt
+    assert prompt.index("## Session Context") < prompt.index("## Required Phase Summary")
 
 
-def test_pinned_context_persists_across_phases(tmp_path: Path) -> None:
+def test_session_context_persists_across_phases(tmp_path: Path) -> None:
     _write_prompts(tmp_path)
     runner = LoopfarmRunner(_cfg(tmp_path))
-    runner.discord_context_override = "Carry over"
+    runner.session_context_override = "Carry over"
 
     prompt_one = runner._build_phase_prompt("sess", "planning")
     prompt_two = runner._build_phase_prompt("sess", "forward")
 
     assert "Carry over" in prompt_one
     assert "Carry over" in prompt_two
-
-
-def test_pinned_context_renders_before_user_context(tmp_path: Path) -> None:
-    _write_prompts(tmp_path)
-    runner = LoopfarmRunner(_cfg(tmp_path))
-    runner.discord_context_override = "Pinned guidance"
-    runner.pending_discord_context.append("hello")
-
-    prompt = runner._build_phase_prompt("sess", "forward")
-
-    assert "Discord Session Context" in prompt
-    assert "Discord User Context" in prompt
-    assert prompt.index("Discord Session Context") < prompt.index(
-        "Discord User Context"
-    )
-    assert prompt.index("Discord User Context") < prompt.index(
-        "## Required Phase Summary"
-    )
 
 
 def test_build_phase_prompt_without_context_returns_base(tmp_path: Path) -> None:
@@ -210,7 +106,8 @@ def test_build_phase_prompt_without_context_returns_base(tmp_path: Path) -> None
     prompt = runner._build_phase_prompt("sess", "forward")
 
     assert "FORWARD Example prompt sess test" in prompt
-    assert "Discord User Context" not in prompt
+    assert "## Session Context" not in prompt
+    assert "## Operator Context" not in prompt
     assert "{{DYNAMIC_CONTEXT}}" not in prompt
 
 
@@ -219,147 +116,114 @@ def test_prompt_injects_context_before_summary_without_placeholder(
 ) -> None:
     _write_prompts(tmp_path, include_placeholder=False)
     runner = LoopfarmRunner(_cfg(tmp_path))
-    runner.pending_discord_context.append("hello")
+    runner.session_context_override = "Pinned guidance"
 
     prompt = runner._build_phase_prompt("sess", "forward")
 
-    assert "Discord User Context" in prompt
-    assert prompt.index("Discord User Context") < prompt.index(
-        "## Required Phase Summary"
-    )
+    assert "## Session Context" in prompt
+    assert prompt.index("## Session Context") < prompt.index("## Required Phase Summary")
 
 
-def test_collect_discord_messages_filters_control_commands(tmp_path: Path, monkeypatch: object) -> None:
+def test_control_checkpoint_pause_then_resume(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _write_prompts(tmp_path)
     runner = LoopfarmRunner(_cfg(tmp_path))
-    runner.discord_thread_id = "thread"
-    monkeypatch.setenv("LOOPFARM_DISCORD_AUTHORIZED_USERS", "u1")
+    runner.session_id = "sess"
 
-    runner.discord = FakeDiscord(
-        [
-            {
-                "id": "2",
-                "content": "!pause",
-                "author": {"id": "u1", "username": "operator"},
-                "timestamp": "2026-01-30T12:00:01.000Z",
-            },
-            {
-                "id": "1",
-                "content": "hello",
-                "author": {"id": "u1", "username": "operator"},
-                "timestamp": "2026-01-30T12:00:00.000Z",
-            },
-        ]
-    )
-
-    runner._collect_discord_messages()
-    ctx = runner._flush_discord_context()
-    commands = runner._drain_discord_commands()
-
-    assert "hello" in ctx
-    assert "!pause" not in ctx
-    assert len(commands) == 1
-    assert commands[0].kind == "pause"
-
-
-def test_collect_discord_messages_posts_ack(tmp_path: Path, monkeypatch: object) -> None:
-    runner = LoopfarmRunner(_cfg(tmp_path))
-    runner.discord_thread_id = "thread"
-    monkeypatch.setenv("LOOPFARM_DISCORD_AUTHORIZED_USERS", "u1")
-
-    runner.discord = AckDiscord(
-        [
-            {
-                "id": "2",
-                "content": "hello",
-                "author": {"id": "u1", "username": "operator"},
-                "timestamp": "2026-01-30T12:00:01.000Z",
-            }
-        ]
-    )
-
-    runner._collect_discord_messages()
-
-    assert runner.discord.posts
-    assert "Received 1 message" in runner.discord.posts[0][0]
-
-    runner._collect_discord_messages()
-
-    assert len(runner.discord.posts) == 1
-
-
-def test_post_forum_status_does_not_mark_seen_on_failure(tmp_path: Path) -> None:
-    runner = LoopfarmRunner(_cfg(tmp_path))
-    runner.discord_thread_id = "thread"
-    runner.discord = FailDiscord()
-    runner.forum = FakeForum(
-        [
-            {
-                "id": "msg-1",
-                "body": '{"decision":"COMPLETE","summary":"ok"}',
-            }
-        ]
-    )
-
-    runner._post_forum_status("loopfarm:status:test-session")
-
-    assert not runner.seen_forum_ids
-
-
-def test_forum_poller_expands_window_until_seen(monkeypatch: object) -> None:
-    monkeypatch.setenv("LOOPFARM_FORUM_POLL_LIMIT", "2")
-    monkeypatch.setenv("LOOPFARM_FORUM_POLL_MAX", "8")
-    messages = [
-        {"id": "m6", "body": ""},
-        {"id": "m5", "body": ""},
-        {"id": "m4", "body": ""},
-        {"id": "m3", "body": ""},
-        {"id": "m2", "body": ""},
-        {"id": "m1", "body": ""},
+    states = [
+        {
+            "timestamp": "2026-02-12T10:00:00Z",
+            "command": "pause",
+            "author": "op",
+        },
+        {
+            "timestamp": "2026-02-12T10:00:01Z",
+            "command": "resume",
+            "author": "op",
+        },
     ]
-    forum = WindowForum(messages)
-    poller = ForumPoller(
-        forum=forum,
-        discord=CollectDiscord(),
-        thread_id="thread",
-        topics=["topic"],
-        stop_event=threading.Event(),
-        seen_ids={"m1"},
-        debug=False,
+
+    def next_state(_: str):
+        if states:
+            return states.pop(0)
+        return None
+
+    monkeypatch.setattr(runner, "_read_control_state", next_state)
+    monkeypatch.setattr(runner, "_sleep", lambda _seconds: None)
+
+    runner._control_checkpoint(session_id="sess", phase="forward", iteration=1)
+
+    assert runner.paused is False
+    meta = runner.session_store.get_session_meta("sess") or {}
+    assert meta.get("status") == "running"
+
+
+def test_control_checkpoint_stop_raises(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _write_prompts(tmp_path)
+    runner = LoopfarmRunner(_cfg(tmp_path))
+
+    state = {
+        "timestamp": "2026-02-12T10:00:00Z",
+        "command": "stop",
+        "author": "op",
+    }
+
+    monkeypatch.setattr(runner, "_read_control_state", lambda _sid: state)
+
+    with pytest.raises(StopRequested):
+        runner._control_checkpoint(session_id="sess", phase="forward", iteration=1)
+
+    assert runner.session_status == "stopped"
+
+
+def test_control_state_context_set_and_clear(tmp_path: Path) -> None:
+    _write_prompts(tmp_path)
+    runner = LoopfarmRunner(_cfg(tmp_path))
+    runner.session_id = "sess"
+
+    runner._apply_control_state(
+        state={
+            "timestamp": "2026-02-12T10:00:00Z",
+            "command": "context_set",
+            "content": "Use this context",
+            "author": "op",
+        },
+        session_id="sess",
+        phase="planning",
+        iteration=0,
     )
 
-    result, truncated = poller._read_topic_window("topic")
+    assert runner.session_context_override == "Use this context"
+    meta = runner.session_store.get_session_meta("sess") or {}
+    assert meta.get("session_context") == "Use this context"
 
-    assert forum.calls == [2, 4, 8]
-    assert result == messages
-    assert not truncated
-
-
-def test_forum_poller_warns_on_truncation(monkeypatch: object) -> None:
-    monkeypatch.setenv("LOOPFARM_FORUM_POLL_LIMIT", "2")
-    monkeypatch.setenv("LOOPFARM_FORUM_POLL_MAX", "4")
-    messages = [
-        {"id": "m6", "body": ""},
-        {"id": "m5", "body": ""},
-        {"id": "m4", "body": ""},
-        {"id": "m3", "body": ""},
-        {"id": "m2", "body": ""},
-        {"id": "m1", "body": ""},
-    ]
-    forum = WindowForum(messages)
-    discord = CollectDiscord()
-    poller = ForumPoller(
-        forum=forum,
-        discord=discord,
-        thread_id="thread",
-        topics=["topic"],
-        stop_event=threading.Event(),
-        seen_ids={"missing"},
-        debug=False,
+    runner._apply_control_state(
+        state={
+            "timestamp": "2026-02-12T10:00:01Z",
+            "command": "context_clear",
+            "author": "op",
+        },
+        session_id="sess",
+        phase="planning",
+        iteration=0,
     )
 
-    poller._post_topic("topic")
+    assert runner.session_context_override == ""
+    meta = runner.session_store.get_session_meta("sess") or {}
+    assert meta.get("session_context") == ""
 
-    assert any("Discord status backlog" in post for post in discord.posts)
+
+def test_load_session_context_override_from_store(tmp_path: Path) -> None:
+    _write_prompts(tmp_path)
+    runner = LoopfarmRunner(_cfg(tmp_path))
+    runner.session_store.update_session_meta(
+        "sess",
+        {"session_context": "Pinned guidance"},
+        author="tester",
+    )
+
+    runner._load_session_context_override("sess")
+
+    assert runner.session_context_override == "Pinned guidance"
 
 
 def test_prompt_paths_use_shared_set_for_all_backends(tmp_path: Path) -> None:
