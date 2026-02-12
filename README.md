@@ -7,7 +7,7 @@ made by morons who have never studied AI seriously a day in their life, but thin
 they can make a successful business by writing an orchestrator and talking about AI.
 
 I wrote this by talking to Claude Code (and Codex ... and Gemini) and I'm sure it will make a successful business,
-as long as I talk about AI on Hacker News.
+as long as I talk about AI on Hacker News (Gary: shoot me an email, I'm willing to consider your incubator)
 
 More to the point (of course, I wouldn't disrespect you by wasting your time) ... this is for all the people who think that taking "chat with an agent" on your phone is a good UI model -- are you a fucking lemming? 
 If Boris told you to jump off a cliff, would you say "Absolutely!" and hop off. Have you ever stepped back and considered that ... maybe ...
