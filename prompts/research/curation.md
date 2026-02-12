@@ -12,10 +12,10 @@ USER PROMPT: **{{PROMPT}}**
 
 ## Workflow
 
-1. Consolidate recent research findings from `synth-forum`.
-2. Curate and organize `synth-issue` tasks/dependencies for implementation readiness.
+1. Consolidate recent research findings from `loopfarm forum`.
+2. Curate and organize `loopfarm issue` tasks/dependencies for implementation readiness.
 3. Prioritize leaf issues, define acceptance criteria, and identify blockers.
-4. Record decisions, references, and open questions to `synth-forum`.
+4. Record decisions, references, and open questions to `loopfarm forum`.
 5. Ensure issue graph is actionable for a later `--mode implementation` run.
 
 Do NOT implement production code in this phase.

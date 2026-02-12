@@ -739,7 +739,7 @@ class KimiJsonFormatter(BaseFormatter):
 
 
 def main(argv: list[str] | None = None, stdin: IO[str] | None = None) -> None:
-    p = argparse.ArgumentParser(prog="loopfarm-format")
+    p = argparse.ArgumentParser(prog="loopfarm format")
     p.add_argument("--cli", choices=["auto", "claude", "codex", "kimi"], default="auto")
     p.add_argument("--repo-root", help="Repo root for shortening absolute paths")
     p.add_argument(

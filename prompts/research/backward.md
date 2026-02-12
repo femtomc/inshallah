@@ -13,7 +13,7 @@ USER PROMPT: **{{PROMPT}}**
 ## Workflow
 
 1. Audit research coverage, evidence quality, and unresolved risks.
-2. Verify findings are captured in `synth-forum` and linked to `synth-issue`.
+2. Verify findings are captured in `loopfarm forum` and linked to `loopfarm issue`.
 3. Replan issue priorities/dependencies to ensure implementation readiness.
 4. File follow-up research tasks for remaining unknowns.
 5. Decide whether preparation is sufficient to hand off to `--mode implementation`.
@@ -22,10 +22,10 @@ Do NOT implement production code in this phase.
 
 ## Completion Signal
 
-If the system is implementation-ready, signal completion via synth-forum:
+If the system is implementation-ready, signal completion via loopfarm forum:
 
 ```bash
-synth-forum post "loopfarm:status:{{SESSION}}" -m '{"decision":"COMPLETE","summary":"<brief summary>"}'
+loopfarm forum post "loopfarm:status:{{SESSION}}" -m '{"decision":"COMPLETE","summary":"<brief summary>"}'
 ```
 
 Do NOT signal completion while critical research gaps remain.

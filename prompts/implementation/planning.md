@@ -9,13 +9,13 @@ to satisfy this prompt.
 
 ## Workflow
 
-1. Start by exploring related issues with `synth-issue`.
+1. Start by exploring related issues with `loopfarm issue`.
 2. If a robust plan already exists and still applies, stop.
 3. Explore the relevant codebase to understand current state.
-4. Use `synth-forum` for prior context and `vecky` or WebSearch when research is
+4. Use `loopfarm forum` for prior context and `vector search tools` or WebSearch when research is
    needed.
 5. Break the work into discrete, testable issues.
-6. File issues with `synth-issue new`, and set priorities/dependencies.
+6. File issues with `loopfarm issue new`, and set priorities/dependencies.
 7. In implementation mode, organize work under an implementation epic so forward,
    documentation, architecture/performance, and backward phases can coordinate.
 8. If this session is writing-focused, structure issues for docs/prose work

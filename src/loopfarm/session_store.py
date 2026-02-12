@@ -4,10 +4,10 @@ import json
 from dataclasses import dataclass
 from typing import Any, TypedDict
 
-from .jwz import Jwz
+from .forum import Forum
 from .util import utc_now_iso
 
-# Jwz topic schemas (append-only).
+# Forum topic schemas (append-only).
 # loopfarm:session:<session_id> -> SessionMeta (schema loopfarm.session.meta.v1)
 # loopfarm:control:<session_id> -> ControlState (schema loopfarm.session.control.v1)
 # loopfarm:context:<session_id> -> SessionContext (schema loopfarm.session.context.v1)
@@ -92,7 +92,7 @@ def _as_int(value: object) -> int | None:
 
 @dataclass
 class SessionStore:
-    jwz: Jwz
+    forum: Forum
     read_limit: int = 25
 
     def get_session_meta(self, session_id: str) -> SessionMeta | None:
@@ -243,7 +243,7 @@ class SessionStore:
     def get_phase_summaries(
         self, session_id: str, limit: int = 6
     ) -> list[PhaseSummary]:
-        messages = self.jwz.read_json(
+        messages = self.forum.read_json(
             self._briefing_topic(session_id), limit=max(limit, self.read_limit)
         )
         summaries: list[tuple[int | None, int | None, PhaseSummary]] = []
@@ -278,7 +278,7 @@ class SessionStore:
                 with_ids.sort(key=lambda s: s[1])
                 ordered = [s[2] for s in with_ids]
             else:
-                # jwz returns newest-first; reverse for oldest-first.
+                # Forum reads return newest-first; reverse for oldest-first.
                 ordered = [s[2] for s in reversed(summaries)]
 
         return ordered[-limit:]
@@ -317,7 +317,7 @@ class SessionStore:
         }
         if author:
             payload["author"] = author
-        self.jwz.post_json(topic, payload)
+        self.forum.post_json(topic, payload)
 
     def _read_latest(
         self,
@@ -326,7 +326,7 @@ class SessionStore:
         *,
         allow_legacy: bool,
     ) -> dict[str, Any] | None:
-        messages = self.jwz.read_json(topic, limit=self.read_limit)
+        messages = self.forum.read_json(topic, limit=self.read_limit)
         candidates: list[tuple[int | None, int | None, dict[str, Any]]] = []
         for msg in messages:
             body = msg.get("body")
@@ -355,7 +355,7 @@ class SessionStore:
         if with_ids:
             with_ids.sort(key=lambda item: item[1])
             return with_ids[-1][2]
-        # jwz read returns newest-first, so the first valid candidate is newest.
+        # Forum reads return newest-first, so the first valid candidate is newest.
         return candidates[0][2]
 
     def _unwrap(

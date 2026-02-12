@@ -118,6 +118,7 @@ def _print_help() -> None:
 
     # Usage
     console.print("[dim]usage:[/dim]  loopfarm [OPTIONS] PROMPT")
+    console.print("[dim]        [/dim]  loopfarm forum|issue|monitor ...")
     console.print()
 
     # Phase diagram
@@ -180,7 +181,7 @@ def _print_help() -> None:
     t.add_row("--loop SPEC", "[dim]legacy alias for --phase-plan[/dim]")
     t.add_row(
         "--project NAME",
-        "project name for synth-forum/synth-issue context [dim](default: workshop)[/dim]",
+        "project label injected into prompts [dim](default: current directory)[/dim]",
     )
     console.print("[bold]Loop Control[/bold]")
     console.print(t)
@@ -189,15 +190,15 @@ def _print_help() -> None:
     # Examples
     console.print("[bold]Examples[/bold]")
     examples = [
-        ('loopfarm "Work on QED issues"', "default (implementation mode)"),
+        ('loopfarm "Implement a streaming parser"', "default (implementation mode)"),
         ('loopfarm --codex "Refactor the allocator"', "codex for all phases"),
-        ('loopfarm --mode writing "Document the 2LTT pipeline"', "kimi writes, codex reviews"),
+        ('loopfarm --mode writing "Draft API reference docs"', "kimi writes, codex reviews"),
         (
             'loopfarm --mode research --phase-plan "planning,research*3,curation,backward" "Survey runtime architectures"',
             "research + planning preparation loop",
         ),
         (
-            'loopfarm --mode implementation --phase-plan "planning,forward*5,documentation,architecture,backward" "Improve QED"',
+            'loopfarm --mode implementation --phase-plan "planning,forward*5,documentation,architecture,backward" "Improve loop throughput"',
             "custom implementation loop",
         ),
         (
@@ -217,7 +218,7 @@ def _print_help() -> None:
     t.add_column("Description")
     t.add_row("LOOPFARM_CLI", f"default CLI [dim]({backend_hint})[/dim]")
     t.add_row("LOOPFARM_MODEL", "default model override")
-    t.add_row("LOOPFARM_PROJECT", "default project name")
+    t.add_row("LOOPFARM_PROJECT", "default project label")
     t.add_row("LOOPFARM_BACKWARD_INTERVAL", "default backward interval")
     t.add_row("LOOPFARM_IMPLEMENTATION_LOOP", "default implementation loop spec")
     t.add_row("LOOPFARM_RESEARCH_LOOP", "default research loop spec")
@@ -275,7 +276,7 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--loop")
     p.add_argument(
         "--project",
-        default=_env("LOOPFARM_PROJECT") or "workshop",
+        default=_env("LOOPFARM_PROJECT") or Path.cwd().name,
     )
 
     return p
@@ -351,7 +352,28 @@ def _resolve_loop_settings(
 
 
 def main(argv: list[str] | None = None) -> None:
-    args = _build_parser().parse_args(argv)
+    raw_argv = list(argv) if argv is not None else sys.argv[1:]
+
+    if raw_argv:
+        command = raw_argv[0]
+        sub_argv = raw_argv[1:]
+        if command == "forum":
+            from .forum import main as forum_main
+
+            forum_main(sub_argv)
+            return
+        if command == "issue":
+            from .issue import main as issue_main
+
+            issue_main(sub_argv)
+            return
+        if command == "monitor":
+            from .monitor import main as monitor_main
+
+            monitor_main(sub_argv)
+            return
+
+    args = _build_parser().parse_args(raw_argv)
 
     if args.help:
         _print_help()

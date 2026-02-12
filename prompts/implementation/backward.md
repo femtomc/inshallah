@@ -24,34 +24,34 @@ scope.
 
 ## Workflow
 
-1. Explore the relevant codebase and current issue state (`synth-issue`).
+1. Explore the relevant codebase and current issue state (`loopfarm issue`).
 2. Review correctness, quality, integration gaps, and unresolved risks.
 3. Incorporate findings from documentation and architecture/performance phases.
-4. Replan via `synth-issue` where needed (new issues, reprioritization, dependencies).
-5. Use `synth-forum`, `vecky`, or WebSearch for supporting context/research when needed.
+4. Replan via `loopfarm issue` where needed (new issues, reprioritization, dependencies).
+5. Use `loopfarm forum`, `vector search tools`, or WebSearch for supporting context/research when needed.
 6. Do NOT modify code in this phase; file issues instead.
 7. Follow `loopfarm/prompts/INCREMENTAL.md` when doing incremental backward
    review for implementation requests.
 
-Ignore unrelated dirty state in the monorepo; other agents may be working in
+Ignore unrelated dirty state in the repository; other agents may be working in
 parallel.
 
 ## Record Audit State
 
-When done, record audit state to synth-forum:
+When done, record audit state to loopfarm forum:
 
 ```bash
-synth-forum post backward:state:{{PROJECT}} -m '{"commit":"<HEAD>","timestamp":"<now>"}'
+loopfarm forum post backward:state:{{PROJECT}} -m '{"commit":"<HEAD>","timestamp":"<now>"}'
 ```
 
 ## Completion Signal
 
 Backward is the only phase that can terminate the loop. If you're satisfied
 that the user's concerns have been fully and completely addressed, signal
-completion via synth-forum:
+completion via loopfarm forum:
 
 ```bash
-synth-forum post "loopfarm:status:{{SESSION}}" -m '{"decision":"COMPLETE","summary":"<brief summary>"}'
+loopfarm forum post "loopfarm:status:{{SESSION}}" -m '{"decision":"COMPLETE","summary":"<brief summary>"}'
 ```
 
 Do NOT signal completion if required issues are still open or unresolved.

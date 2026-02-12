@@ -42,11 +42,11 @@ def test_inject_forward_report_fallback_reads(monkeypatch: object, tmp_path: Pat
     runner = LoopfarmRunner(_cfg(tmp_path))
 
     def fake_read(session_id: str) -> dict[str, str]:
-        return {"summary": "from jwz", "pre_head": "a", "post_head": "b", "commit_range": ""}
+        return {"summary": "from forum", "pre_head": "a", "post_head": "b", "commit_range": ""}
 
     monkeypatch.setattr(runner, "_read_forward_report", fake_read)  # type: ignore[attr-defined]
 
     out = runner._inject_forward_report("{{FORWARD_REPORT}}", "sess", None)
 
-    assert "from jwz" in out
+    assert "from forum" in out
     assert "HEAD: a -> b" in out

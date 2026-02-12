@@ -33,12 +33,12 @@ Focus on:
 ## Workflow
 
 1. Audit architecture and performance implications of current cycle changes.
-2. Coordinate with implementation work via `synth-issue`.
+2. Coordinate with implementation work via `loopfarm issue`.
 3. File findings as issues attached to the active implementation epic.
 4. Do not close epic/container issues from this phase.
 5. Do not modify implementation code in this phase; capture work as issues.
 
-Ignore unrelated dirty state in the monorepo; other agents may be working in
+Ignore unrelated dirty state in the repository; other agents may be working in
 parallel.
 
 ## Required Phase Summary

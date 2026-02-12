@@ -13,14 +13,14 @@ specific project, ignore unrelated changes outside that scope.
 
 ## Workflow
 
-1. Start with `synth-issue ready --json` and select only from that ready set.
+1. Start with `loopfarm issue ready --json` and select only from that ready set.
 2. Pick the highest-priority in-scope **leaf** issue. Do not pick parent/epic
    coordination tickets, including issues that have active `parent`
    dependencies (`src_id == selected issue`).
-3. Before moving to `in_progress`, validate with `synth-issue deps <id> --json`.
+3. Before moving to `in_progress`, validate with `loopfarm issue deps <id> --json`.
    If the issue has open child issues, do not select it; pick a ready child
    issue instead.
-4. Gather grounding/context from `synth-forum` and, when needed, `vecky` or WebSearch.
+4. Gather grounding/context from `loopfarm forum` and, when needed, `vector search tools` or WebSearch.
 5. Implement, run tests/checks, and commit.
 6. Close only the concrete leaf issue you implemented. Do not close a
    parent/epic issue unless every child is already `closed`/`duplicate` and
@@ -30,7 +30,7 @@ specific project, ignore unrelated changes outside that scope.
 9. Update the implementation epic/issue graph so documentation and
    architecture/performance phases can pick up coordinated follow-up work.
 
-Ignore unrelated dirty state in the monorepo; other agents may be working in
+Ignore unrelated dirty state in the repository; other agents may be working in
 parallel.
 
 ## Guidelines

@@ -12,11 +12,11 @@ USER PROMPT: **{{PROMPT}}**
 
 ## Workflow
 
-1. Perform deep research using `vecky`, web search, papers, and production systems.
+1. Perform deep research using `vector search tools`, web search, papers, and production systems.
 2. Clone and study relevant external repositories when needed.
 3. Extract concrete findings: architecture patterns, performance tradeoffs, failure modes.
-4. Capture findings in `synth-forum` topics for durable context.
-5. Link findings to `synth-issue` tasks under the active research/implementation epic.
+4. Capture findings in `loopfarm forum` topics for durable context.
+5. Link findings to `loopfarm issue` tasks under the active research/implementation epic.
 
 Do NOT implement production code in this phase.
 

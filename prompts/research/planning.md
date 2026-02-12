@@ -13,9 +13,9 @@ USER PROMPT: **{{PROMPT}}**
 ## Workflow
 
 1. Define a research scope and hypotheses to validate.
-2. Create a research/implementation epic structure in `synth-issue`.
+2. Create a research/implementation epic structure in `loopfarm issue`.
 3. Break out concrete research tasks (papers, production systems, codebases).
-4. Define required artifacts in `synth-forum` topics for continuity.
+4. Define required artifacts in `loopfarm forum` topics for continuity.
 5. Specify what will count as "implementation-ready" in backward/replanning.
 
 Do NOT implement code in this phase.

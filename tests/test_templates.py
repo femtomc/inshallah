@@ -20,11 +20,11 @@ def test_render_template_supports_relative_includes(tmp_path: Path) -> None:
 
     rendered = render_template(
         tmp_path / "main.md",
-        TemplateContext(prompt="Do thing", session="loopfarm-1234", project="workshop"),
+        TemplateContext(prompt="Do thing", session="loopfarm-1234", project="demo"),
     )
     assert "USER PROMPT: Do thing" in rendered
     assert "Session: loopfarm-1234" in rendered
-    assert "Project: workshop" in rendered
+    assert "Project: demo" in rendered
 
 
 def test_render_template_rejects_cyclic_includes(tmp_path: Path) -> None:
@@ -36,4 +36,3 @@ def test_render_template_rejects_cyclic_includes(tmp_path: Path) -> None:
             tmp_path / "a.md",
             TemplateContext(prompt="x", session="y", project="z"),
         )
-

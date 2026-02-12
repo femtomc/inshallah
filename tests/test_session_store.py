@@ -10,7 +10,7 @@ from loopfarm.session_store import (
 )
 
 
-class FakeJwz:
+class FakeForum:
     def __init__(self, messages: dict[str, list[dict[str, Any]]] | None = None) -> None:
         self._messages = messages or {}
         self.posted: list[tuple[str, dict[str, Any]]] = []
@@ -31,7 +31,7 @@ def _control_topic(session_id: str) -> str:
 
 
 def test_get_session_meta_missing_topic_returns_none() -> None:
-    store = SessionStore(FakeJwz())
+    store = SessionStore(FakeForum())
 
     assert store.get_session_meta("sess") is None
 
@@ -43,7 +43,7 @@ def test_get_session_meta_skips_malformed_json() -> None:
             {"id": 2, "body": json.dumps({"status": "running"})},
         ]
     }
-    store = SessionStore(FakeJwz(messages))
+    store = SessionStore(FakeForum(messages))
 
     meta = store.get_session_meta("sess")
 
@@ -59,7 +59,7 @@ def test_read_last_prefers_highest_id() -> None:
             {"id": "2", "body": json.dumps({"status": "stopped", "command": "stop"})},
         ]
     }
-    store = SessionStore(FakeJwz(messages))
+    store = SessionStore(FakeForum(messages))
 
     state = store.get_control_state("sess")
 
@@ -82,7 +82,7 @@ def test_read_latest_prefers_created_at() -> None:
             },
         ]
     }
-    store = SessionStore(FakeJwz(messages))
+    store = SessionStore(FakeForum(messages))
 
     state = store.get_control_state("sess")
 
@@ -103,7 +103,7 @@ def test_read_latest_uses_newest_first_when_no_ids() -> None:
             },
         ]
     }
-    store = SessionStore(FakeJwz(messages))
+    store = SessionStore(FakeForum(messages))
 
     state = store.get_control_state("sess")
 
@@ -117,23 +117,23 @@ def test_update_session_meta_merges_and_posts_envelope() -> None:
             {"id": 3, "body": json.dumps({"prompt": "hello", "status": "running"})},
         ]
     }
-    jwz = FakeJwz(messages)
-    store = SessionStore(jwz)
+    forum = FakeForum(messages)
+    store = SessionStore(forum)
 
     merged = store.update_session_meta("sess", {"status": "paused"}, author="runner")
 
     assert merged["prompt"] == "hello"
     assert merged["status"] == "paused"
-    assert jwz.posted
-    topic, payload = jwz.posted[-1]
+    assert forum.posted
+    topic, payload = forum.posted[-1]
     assert topic == _session_topic("sess")
     assert payload.get("schema") == SESSION_META_SCHEMA
     assert payload.get("data", {}).get("status") == "paused"
 
 
 def test_set_control_state_posts_envelope() -> None:
-    jwz = FakeJwz()
-    store = SessionStore(jwz)
+    forum = FakeForum()
+    store = SessionStore(forum)
 
     store.set_control_state(
         "sess",
@@ -145,8 +145,8 @@ def test_set_control_state_posts_envelope() -> None:
         content="!pause",
     )
 
-    assert jwz.posted
-    topic, payload = jwz.posted[-1]
+    assert forum.posted
+    topic, payload = forum.posted[-1]
     assert topic == _control_topic("sess")
     assert payload.get("schema") == CONTROL_STATE_SCHEMA
     assert payload.get("data", {}).get("command") == "pause"

@@ -24,7 +24,7 @@ This is encoded in `phase_contract.py` via `termination_gate=True` for
 
 ## Phase I/O Contract
 
-| Phase | Consumes | Produces | `synth-issue` writes | `synth-forum` writes |
+| Phase | Consumes | Produces | `loopfarm issue` writes | `loopfarm forum` writes |
 | --- | --- | --- | --- | --- |
 | `planning` | prompt, repo_state | issue_plan | epic, leaf_issues | briefing |
 | `forward` | issue_plan, repo_state | code_changes, phase_summary | leaf_issues | briefing, forward_report |

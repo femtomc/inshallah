@@ -14,7 +14,9 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, unquote, urlparse
 
-from .util import CommandError, run_json, utc_now_iso, which
+from .forum import Forum
+from .issue import Issue
+from .util import utc_now_iso
 
 _SESSION_TOPIC_RE = re.compile(r"^(?P<prefix>loopfarm):session:(?P<session_id>[^\s]+)$")
 _MESSAGE_SUMMARY_MAX = 220
@@ -520,34 +522,17 @@ class MonitorConfig:
 class MonitorCollector:
     def __init__(self, repo_root: Path) -> None:
         self.repo_root = repo_root
-
-    def _run_json(self, argv: list[str]) -> Any:
-        try:
-            return run_json(argv, cwd=self.repo_root)
-        except (FileNotFoundError, CommandError, json.JSONDecodeError):
-            return None
+        self.forum = Forum.from_workdir(repo_root)
+        self.issue = Issue.from_workdir(repo_root)
 
     def _forum_topics(self) -> list[dict[str, Any]]:
-        out = self._run_json(["synth-forum", "topic", "list", "--json"])
-        if isinstance(out, list):
-            return [item for item in out if isinstance(item, dict)]
-        return []
+        return self.forum.list_topics()
 
     def _forum_read(self, topic: str, *, limit: int) -> list[dict[str, Any]]:
-        out = self._run_json(
-            ["synth-forum", "read", topic, "--limit", str(limit), "--json"]
-        )
-        if isinstance(out, list):
-            return [item for item in out if isinstance(item, dict)]
-        return []
+        return self.forum.read(topic, limit=limit)
 
     def _issue_list(self, status: str) -> list[dict[str, Any]]:
-        out = self._run_json(
-            ["synth-issue", "list", "--status", status, "--json"]
-        )
-        if isinstance(out, list):
-            return [item for item in out if isinstance(item, dict)]
-        return []
+        return self.issue.list(status=status, limit=1000)
 
     def _matching_session_topics(
         self, topics: list[dict[str, Any]]
@@ -712,19 +697,10 @@ class MonitorCollector:
 
     def _collect_forum_topics(self, max_topics: int) -> list[dict[str, Any]]:
         topics = self._forum_topics()
-        interesting_prefixes = (
-            "loopfarm:",
-            "issue:",
-            "research:",
-            "departures:",
-            "backward:",
-        )
         rows: list[dict[str, Any]] = []
         for topic in topics:
             name = topic.get("name")
             if not isinstance(name, str):
-                continue
-            if not name.startswith(interesting_prefixes):
                 continue
             created_at = _to_int(topic.get("created_at"))
             rows.append(
@@ -776,8 +752,8 @@ class MonitorCollector:
             "generated_at": utc_now_iso(),
             "host": socket.gethostname(),
             "health": {
-                "synth_forum": bool(which("synth-forum")),
-                "synth_issue": bool(which("synth-issue")),
+                "forum_db": self.forum.store.db_path.exists(),
+                "issue_db": self.issue.store.db_path.exists(),
             },
             "sessions": self._collect_sessions(max_sessions),
             "issue_counts": issue_counts,
@@ -893,7 +869,7 @@ class MonitorHandler(BaseHTTPRequestHandler):
 
 
 def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="loopfarm-monitor")
+    parser = argparse.ArgumentParser(prog="loopfarm monitor")
     parser.add_argument(
         "--host",
         default=_env("LOOPFARM_MONITOR_HOST") or "0.0.0.0",
@@ -931,7 +907,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--repo-root",
         default=str(Path.cwd()),
-        help="Repo root used for synth-forum/synth-issue store discovery",
+        help="Working directory used for .loopfarm state discovery",
     )
     return parser
 
@@ -973,7 +949,7 @@ def main(argv: list[str] | None = None) -> None:
     handler_cls = _make_handler(collector, cache, cfg.refresh_seconds)
     server = ThreadingHTTPServer((cfg.host, cfg.port), handler_cls)
     print(
-        f"loopfarm-monitor listening on http://{cfg.host}:{cfg.port} "
+        f"loopfarm monitor listening on http://{cfg.host}:{cfg.port} "
         f"(repo={cfg.repo_root})"
     )
     try:

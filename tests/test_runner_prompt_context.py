@@ -5,7 +5,7 @@ from pathlib import Path
 
 import threading
 
-from loopfarm.runner import CodexPhaseModel, JwzPoller, LoopfarmConfig, LoopfarmRunner
+from loopfarm.runner import CodexPhaseModel, ForumPoller, LoopfarmConfig, LoopfarmRunner
 
 
 class FakeDiscord:
@@ -50,7 +50,7 @@ class FailDiscord:
         return False
 
 
-class FakeJwz:
+class FakeForum:
     def __init__(self, messages: list[dict[str, object]]) -> None:
         self._messages = messages
 
@@ -58,7 +58,7 @@ class FakeJwz:
         return self._messages
 
 
-class WindowJwz:
+class WindowForum:
     def __init__(self, messages: list[dict[str, object]]) -> None:
         self._messages = messages
         self.calls: list[int] = []
@@ -287,11 +287,11 @@ def test_collect_discord_messages_posts_ack(tmp_path: Path, monkeypatch: object)
     assert len(runner.discord.posts) == 1
 
 
-def test_post_jwz_status_does_not_mark_seen_on_failure(tmp_path: Path) -> None:
+def test_post_forum_status_does_not_mark_seen_on_failure(tmp_path: Path) -> None:
     runner = LoopfarmRunner(_cfg(tmp_path))
     runner.discord_thread_id = "thread"
     runner.discord = FailDiscord()
-    runner.jwz = FakeJwz(
+    runner.forum = FakeForum(
         [
             {
                 "id": "msg-1",
@@ -300,14 +300,14 @@ def test_post_jwz_status_does_not_mark_seen_on_failure(tmp_path: Path) -> None:
         ]
     )
 
-    runner._post_jwz_status("loopfarm:status:test-session")
+    runner._post_forum_status("loopfarm:status:test-session")
 
-    assert not runner.seen_jwz_ids
+    assert not runner.seen_forum_ids
 
 
-def test_jwz_poller_expands_window_until_seen(monkeypatch: object) -> None:
-    monkeypatch.setenv("LOOPFARM_JWZ_POLL_LIMIT", "2")
-    monkeypatch.setenv("LOOPFARM_JWZ_POLL_MAX", "8")
+def test_forum_poller_expands_window_until_seen(monkeypatch: object) -> None:
+    monkeypatch.setenv("LOOPFARM_FORUM_POLL_LIMIT", "2")
+    monkeypatch.setenv("LOOPFARM_FORUM_POLL_MAX", "8")
     messages = [
         {"id": "m6", "body": ""},
         {"id": "m5", "body": ""},
@@ -316,9 +316,9 @@ def test_jwz_poller_expands_window_until_seen(monkeypatch: object) -> None:
         {"id": "m2", "body": ""},
         {"id": "m1", "body": ""},
     ]
-    jwz = WindowJwz(messages)
-    poller = JwzPoller(
-        jwz=jwz,
+    forum = WindowForum(messages)
+    poller = ForumPoller(
+        forum=forum,
         discord=CollectDiscord(),
         thread_id="thread",
         topics=["topic"],
@@ -329,14 +329,14 @@ def test_jwz_poller_expands_window_until_seen(monkeypatch: object) -> None:
 
     result, truncated = poller._read_topic_window("topic")
 
-    assert jwz.calls == [2, 4, 8]
+    assert forum.calls == [2, 4, 8]
     assert result == messages
     assert not truncated
 
 
-def test_jwz_poller_warns_on_truncation(monkeypatch: object) -> None:
-    monkeypatch.setenv("LOOPFARM_JWZ_POLL_LIMIT", "2")
-    monkeypatch.setenv("LOOPFARM_JWZ_POLL_MAX", "4")
+def test_forum_poller_warns_on_truncation(monkeypatch: object) -> None:
+    monkeypatch.setenv("LOOPFARM_FORUM_POLL_LIMIT", "2")
+    monkeypatch.setenv("LOOPFARM_FORUM_POLL_MAX", "4")
     messages = [
         {"id": "m6", "body": ""},
         {"id": "m5", "body": ""},
@@ -345,10 +345,10 @@ def test_jwz_poller_warns_on_truncation(monkeypatch: object) -> None:
         {"id": "m2", "body": ""},
         {"id": "m1", "body": ""},
     ]
-    jwz = WindowJwz(messages)
+    forum = WindowForum(messages)
     discord = CollectDiscord()
-    poller = JwzPoller(
-        jwz=jwz,
+    poller = ForumPoller(
+        forum=forum,
         discord=discord,
         thread_id="thread",
         topics=["topic"],

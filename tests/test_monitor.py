@@ -14,24 +14,24 @@ class FakeCollector(MonitorCollector):
     def __init__(self, repo_root: Path) -> None:
         super().__init__(repo_root)
 
-    def _run_json(self, argv: list[str]):
-        if argv == ["synth-forum", "topic", "list", "--json"]:
-            return [
-                {
-                    "name": "loopfarm:session:loopfarm-a1b2c3d4",
-                    "created_at": 3000,
-                },
-                {
-                    "name": "loopfarm:session:loopfarm-deadbeef",
-                    "created_at": 2500,
-                },
-                {
-                    "name": "research:qed:kernel",
-                    "created_at": 3100,
-                },
-            ]
+    def _forum_topics(self) -> list[dict[str, object]]:
+        return [
+            {
+                "name": "loopfarm:session:loopfarm-a1b2c3d4",
+                "created_at": 3000,
+            },
+            {
+                "name": "loopfarm:session:loopfarm-deadbeef",
+                "created_at": 2500,
+            },
+            {
+                "name": "research:runtime:kernel",
+                "created_at": 3100,
+            },
+        ]
 
-        if argv[:3] == ["synth-forum", "read", "loopfarm:session:loopfarm-a1b2c3d4"]:
+    def _forum_read(self, topic: str, *, limit: int) -> list[dict[str, object]]:
+        if topic == "loopfarm:session:loopfarm-a1b2c3d4":
             return [
                 {
                     "id": "2",
@@ -49,7 +49,7 @@ class FakeCollector(MonitorCollector):
                 }
             ]
 
-        if argv[:3] == ["synth-forum", "read", "loopfarm:status:loopfarm-a1b2c3d4"]:
+        if topic == "loopfarm:status:loopfarm-a1b2c3d4":
             return [
                 {
                     "id": "3",
@@ -63,7 +63,7 @@ class FakeCollector(MonitorCollector):
                 }
             ]
 
-        if argv[:3] == ["synth-forum", "read", "loopfarm:briefing:loopfarm-a1b2c3d4"]:
+        if topic == "loopfarm:briefing:loopfarm-a1b2c3d4":
             return [
                 {
                     "id": "4",
@@ -79,7 +79,7 @@ class FakeCollector(MonitorCollector):
                 }
             ]
 
-        if argv[:3] == ["synth-forum", "read", "loopfarm:forward:loopfarm-a1b2c3d4"]:
+        if topic == "loopfarm:forward:loopfarm-a1b2c3d4":
             return [
                 {
                     "id": "5",
@@ -93,7 +93,7 @@ class FakeCollector(MonitorCollector):
                 }
             ]
 
-        if argv[:3] == ["synth-forum", "read", "loopfarm:session:loopfarm-deadbeef"]:
+        if topic == "loopfarm:session:loopfarm-deadbeef":
             return [
                 {
                     "id": "6",
@@ -110,16 +110,14 @@ class FakeCollector(MonitorCollector):
                 }
             ]
 
-        if argv[:3] == ["synth-forum", "read", "loopfarm:status:loopfarm-deadbeef"]:
+        if topic in {
+            "loopfarm:status:loopfarm-deadbeef",
+            "loopfarm:briefing:loopfarm-deadbeef",
+            "loopfarm:forward:loopfarm-deadbeef",
+        }:
             return []
 
-        if argv[:3] == ["synth-forum", "read", "loopfarm:briefing:loopfarm-deadbeef"]:
-            return []
-
-        if argv[:3] == ["synth-forum", "read", "loopfarm:forward:loopfarm-deadbeef"]:
-            return []
-
-        if argv[:3] == ["synth-forum", "read", "research:qed:kernel"]:
+        if topic == "research:runtime:kernel":
             return [
                 {
                     "id": "7",
@@ -128,27 +126,30 @@ class FakeCollector(MonitorCollector):
                 }
             ]
 
-        if argv[:4] == ["synth-issue", "list", "--status", "in_progress"]:
+        return []
+
+    def _issue_list(self, status: str) -> list[dict[str, object]]:
+        if status == "in_progress":
             return [
                 {
-                    "id": "workshop-aaaa",
+                    "id": "loopfarm-aaaa",
                     "title": "Implement monitor API",
                     "priority": 1,
                     "updated_at": 4000,
                 }
             ]
 
-        if argv[:4] == ["synth-issue", "list", "--status", "open"]:
+        if status == "open":
             return [
                 {
-                    "id": "workshop-bbbb",
+                    "id": "loopfarm-bbbb",
                     "title": "Add monitor UI details",
                     "priority": 2,
                     "updated_at": 3900,
                 }
             ]
 
-        if argv[:4] == ["synth-issue", "list", "--status", "paused"]:
+        if status == "paused":
             return []
 
         return []
@@ -167,7 +168,8 @@ def test_collect_overview_merges_loops_issues_forum(tmp_path: Path) -> None:
 
     overview = collector.collect_overview(max_sessions=5, max_issues=10, max_topics=10)
 
-    assert overview["health"]["synth_forum"] in {True, False}
+    assert overview["health"]["forum_db"] in {True, False}
+    assert overview["health"]["issue_db"] in {True, False}
     assert overview["issue_counts"] == {"in_progress": 1, "open": 1, "paused": 0}
 
     sessions = overview["sessions"]
@@ -178,10 +180,10 @@ def test_collect_overview_merges_loops_issues_forum(tmp_path: Path) -> None:
     assert sessions[0]["latest_summary"] == "Implemented parser + tests"
 
     issues = overview["issues"]
-    assert [issue["id"] for issue in issues] == ["workshop-aaaa", "workshop-bbbb"]
+    assert [issue["id"] for issue in issues] == ["loopfarm-aaaa", "loopfarm-bbbb"]
 
     topic_names = [topic["name"] for topic in overview["forum_topics"]]
-    assert "research:qed:kernel" in topic_names
+    assert "research:runtime:kernel" in topic_names
     assert "loopfarm:session:loopfarm-a1b2c3d4" in topic_names
 
 

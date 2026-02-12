@@ -18,7 +18,7 @@ from .discord_commands import (
     parse_discord_messages,
 )
 from .phase_contract import build_state_machine, is_termination_gate
-from .jwz import Jwz
+from .forum import Forum
 from .events import EventSink, LoopfarmEvent, StreamEventSink
 from .prompting import assemble_prompt, render_prompt
 from .session_store import SessionStore
@@ -207,11 +207,11 @@ def _extract_kimi_text(jsonl_path: Path) -> str:
     return "\n".join(parts).strip()
 
 
-class JwzPoller(threading.Thread):
+class ForumPoller(threading.Thread):
     def __init__(
         self,
         *,
-        jwz: Jwz,
+        forum: Forum,
         discord: DiscordClient,
         thread_id: str,
         topics: list[str],
@@ -220,15 +220,21 @@ class JwzPoller(threading.Thread):
         debug: bool,
     ) -> None:
         super().__init__(daemon=True)
-        self._jwz = jwz
+        self._forum = forum
         self._discord = discord
         self._thread_id = thread_id
         self._topics = topics
         self._stop_event = stop_event
         self._seen_ids = seen_ids
         self._debug = debug
-        self._poll_limit = max(1, env_int("LOOPFARM_JWZ_POLL_LIMIT", 25))
-        self._poll_max = max(self._poll_limit, env_int("LOOPFARM_JWZ_POLL_MAX", 200))
+        self._poll_limit = max(
+            1,
+            env_int("LOOPFARM_FORUM_POLL_LIMIT", env_int("LOOPFARM_JWZ_POLL_LIMIT", 25)),
+        )
+        self._poll_max = max(
+            self._poll_limit,
+            env_int("LOOPFARM_FORUM_POLL_MAX", env_int("LOOPFARM_JWZ_POLL_MAX", 200)),
+        )
 
     def run(self) -> None:
         while not self._stop_event.is_set():
@@ -272,7 +278,7 @@ class JwzPoller(threading.Thread):
 
     def _read_topic_window(self, topic: str) -> tuple[list[dict[str, Any]], bool]:
         limit = self._poll_limit
-        messages = self._jwz.read_json(topic, limit=limit)
+        messages = self._forum.read_json(topic, limit=limit)
         if not self._seen_ids:
             truncated = len(messages) >= limit and limit >= self._poll_max
             return messages, truncated
@@ -283,7 +289,7 @@ class JwzPoller(threading.Thread):
             if limit >= self._poll_max:
                 return messages, True
             limit = min(limit * 2, self._poll_max)
-            messages = self._jwz.read_json(topic, limit=limit)
+            messages = self._forum.read_json(topic, limit=limit)
 
     def _contains_seen_id(self, messages: list[dict[str, Any]]) -> bool:
         for msg in messages:
@@ -291,7 +297,6 @@ class JwzPoller(threading.Thread):
             if msg_id and str(msg_id) in self._seen_ids:
                 return True
         return False
-
 
 class LoopfarmRunner:
     def __init__(
@@ -307,8 +312,8 @@ class LoopfarmRunner:
         self.backend_provider = backend_provider
         self.stdout = io.stdout if io and io.stdout else sys.stdout
         self.stderr = io.stderr if io and io.stderr else sys.stderr
-        self.jwz = Jwz(cwd=cfg.repo_root)
-        self.session_store = SessionStore(self.jwz)
+        self.forum = Forum.from_workdir(cfg.repo_root)
+        self.session_store = SessionStore(self.forum)
         self.discord = DiscordClient.from_env()
         self.discord_thread_id = os.environ.get("DISCORD_THREAD_ID") or ""
         self.discord_last_seen_id = ""
@@ -316,7 +321,7 @@ class LoopfarmRunner:
         self.pending_discord_commands: list[DiscordCommand] = []
         self.discord_context_override = ""
         self.paused = False
-        self.seen_jwz_ids: set[str] = set()
+        self.seen_forum_ids: set[str] = set()
         self.last_phase = "startup"
         self.start_monotonic: float = 0.0
         self.session_status = "interrupted"
@@ -538,13 +543,13 @@ class LoopfarmRunner:
         for chunk in _chunk_text(content, max_chars):
             self._discord_post(chunk)
 
-    def _post_jwz_status(self, topic: str) -> None:
+    def _post_forum_status(self, topic: str) -> None:
         if not self.discord_thread_id:
             return
-        messages = self.jwz.read_json(topic, limit=5)
+        messages = self.forum.read_json(topic, limit=5)
         for msg in messages:
             msg_id = msg.get("id")
-            if not msg_id or str(msg_id) in self.seen_jwz_ids:
+            if not msg_id or str(msg_id) in self.seen_forum_ids:
                 continue
             body = msg.get("body") or ""
             if not body:
@@ -565,7 +570,7 @@ class LoopfarmRunner:
                 formatted = f"📊 Status: {payload.get('status')}"
             if formatted:
                 if self._discord_post(formatted):
-                    self.seen_jwz_ids.add(str(msg_id))
+                    self.seen_forum_ids.add(str(msg_id))
 
     def _collect_discord_messages(self) -> None:
         if not self.discord.bot_token or not self.discord_thread_id:
@@ -1088,7 +1093,7 @@ class LoopfarmRunner:
             raise SystemExit(str(exc)) from exc
 
     def _prompt_path(self, phase: str) -> Path:
-        # Prefer standalone layout first, then monorepo layout, then root fallback.
+        # Support both prompts/ and loopfarm/prompts/ layouts.
         prompts_root: Path | None = None
         for candidate in (
             self.cfg.repo_root / "prompts",
@@ -1278,7 +1283,7 @@ class LoopfarmRunner:
                         self._discord_post(
                             f"{discord_label} #{iteration}{run_suffix} ✅ completed at {utc_now_iso()[11:19]}"
                         )
-                    self._post_jwz_status(f"loopfarm:status:{session_id}")
+                    self._post_forum_status(f"loopfarm:status:{session_id}")
                     return summary
 
                 self._emit(
@@ -1524,7 +1529,7 @@ class LoopfarmRunner:
                 self._cleanup_paths(forward_out, forward_last)
 
             # Post statuses
-            self._post_jwz_status(f"loopfarm:status:{session_id}")
+            self._post_forum_status(f"loopfarm:status:{session_id}")
 
             # Backward (runs every backward_interval iterations)
             run_backward = loop_iteration % self.cfg.backward_interval == 0
@@ -1640,7 +1645,7 @@ class LoopfarmRunner:
                 self._cleanup_paths(backward_out, backward_last)
 
             # Post statuses
-            self._post_jwz_status(f"loopfarm:status:{session_id}")
+            self._post_forum_status(f"loopfarm:status:{session_id}")
 
             # Completion check
             decision, summary = self._read_completion(session_id)
@@ -1724,7 +1729,7 @@ class LoopfarmRunner:
 
     def _start_poller(
         self, session_id: str
-    ) -> tuple[threading.Event, JwzPoller | None]:
+    ) -> tuple[threading.Event, ForumPoller | None]:
         if not self.discord_thread_id:
             return threading.Event(), None
 
@@ -1733,13 +1738,13 @@ class LoopfarmRunner:
             f"loopfarm:status:{session_id}",
             f"loopfarm:status:{session_id}",
         ]
-        poller = JwzPoller(
-            jwz=self.jwz,
+        poller = ForumPoller(
+            forum=self.forum,
             discord=self.discord,
             thread_id=self.discord_thread_id,
             topics=topics,
             stop_event=stop_event,
-            seen_ids=self.seen_jwz_ids,
+            seen_ids=self.seen_forum_ids,
             debug=env_flag("LOOPFARM_DISCORD_DEBUG"),
         )
         poller.start()
@@ -1762,7 +1767,7 @@ class LoopfarmRunner:
             self.discord_context_override = ctx
 
     def _stop_poller(
-        self, stop_event: threading.Event, poller: JwzPoller | None
+        self, stop_event: threading.Event, poller: ForumPoller | None
     ) -> None:
         stop_event.set()
         if poller:
@@ -1890,12 +1895,12 @@ class LoopfarmRunner:
         }
 
     def _post_forward_report(self, session_id: str, payload: dict[str, Any]) -> None:
-        self.jwz.post_json(f"loopfarm:forward:{session_id}", payload)
+        self.forum.post_json(f"loopfarm:forward:{session_id}", payload)
 
     def _read_forward_report(self, session_id: str) -> dict[str, Any] | None:
-        msgs = self.jwz.read_json(f"loopfarm:forward:{session_id}", limit=1)
+        msgs = self.forum.read_json(f"loopfarm:forward:{session_id}", limit=1)
         if not msgs:
-            msgs = self.jwz.read_json(f"loopfarm:forward:{session_id}", limit=1)
+            msgs = self.forum.read_json(f"loopfarm:forward:{session_id}", limit=1)
         if not msgs:
             return None
         body = msgs[0].get("body") or ""
@@ -2112,9 +2117,9 @@ class LoopfarmRunner:
         )
 
     def _read_completion(self, session_id: str) -> tuple[str, str]:
-        msgs = self.jwz.read_json(f"loopfarm:status:{session_id}", limit=1)
+        msgs = self.forum.read_json(f"loopfarm:status:{session_id}", limit=1)
         if not msgs:
-            msgs = self.jwz.read_json(f"loopfarm:status:{session_id}", limit=1)
+            msgs = self.forum.read_json(f"loopfarm:status:{session_id}", limit=1)
         if not msgs:
             return "", ""
         body = msgs[0].get("body") or ""
@@ -2162,4 +2167,3 @@ def run_loop(
     if session_id is None:
         session_id = new_session_id()
     return runner.run(session_id=session_id)
-

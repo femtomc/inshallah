@@ -11,8 +11,6 @@ dependencies = ["rich>=13.7.1"]
 
 [project.scripts]
 loopfarm = "loopfarm.cli:main"
-loopfarm-format = "loopfarm.format_stream:main"
-loopfarm-monitor = "loopfarm.monitor:main"
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
