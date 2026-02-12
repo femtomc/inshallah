@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 import json
+import threading
+import time
 from pathlib import Path
 
-from loopfarm.monitor import MonitorCollector, _decode_message_body
+import pytest
+
+from loopfarm.monitor import LoopLauncher, MonitorCollector, _decode_message_body
 
 
 def _envelope(schema: str, data: dict[str, object]) -> str:
@@ -198,3 +202,93 @@ def test_collect_overview_returns_all_loopfarm_sessions(tmp_path: Path) -> None:
         "loopfarm-a1b2c3d4",
         "loopfarm-deadbeef",
     }
+
+
+def test_loop_launcher_allows_multiple_concurrent_sessions(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (tmp_path / ".loopfarm" / "prompts").mkdir(parents=True, exist_ok=True)
+    (tmp_path / ".loopfarm" / "prompts" / "forward.md").write_text(
+        "forward prompt\n", encoding="utf-8"
+    )
+    (tmp_path / ".loopfarm" / "prompts" / "backward.md").write_text(
+        "backward prompt\n", encoding="utf-8"
+    )
+    (tmp_path / ".loopfarm" / "loopfarm.toml").write_text(
+        """
+[program]
+name = "default"
+project = "loopfarm"
+steps = ["forward", "backward"]
+termination_phase = "backward"
+
+[program.phase.forward]
+cli = "codex"
+prompt = ".loopfarm/prompts/forward.md"
+model = "gpt-5.3-codex"
+
+[program.phase.backward]
+cli = "codex"
+prompt = ".loopfarm/prompts/backward.md"
+model = "gpt-5.2"
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    started: list[str] = []
+    started_lock = threading.Lock()
+    wait = threading.Event()
+
+    def fake_run_loop(cfg, *, session_id=None, event_sink=None, io=None, backend_provider=None):
+        assert session_id is not None
+        with started_lock:
+            started.append(session_id)
+        wait.wait(0.05)
+        return 0
+
+    monkeypatch.setattr("loopfarm.monitor.run_loop", fake_run_loop)
+
+    launcher = LoopLauncher(tmp_path)
+    first = launcher.start(prompt="first loop", program_name=None, project_name=None)
+    second = launcher.start(prompt="second loop", program_name=None, project_name=None)
+
+    assert first["session_id"] != second["session_id"]
+
+    deadline = time.time() + 1.0
+    while time.time() < deadline:
+        with started_lock:
+            if len(started) >= 2:
+                break
+        time.sleep(0.01)
+
+    wait.set()
+
+    with started_lock:
+        assert set(started) == {first["session_id"], second["session_id"]}
+
+
+def test_monitor_collector_apply_control_writes_control_state(tmp_path: Path) -> None:
+    collector = MonitorCollector(tmp_path)
+    session_id = "loopfarm-1234abcd"
+    collector.session_store.update_session_meta(
+        session_id,
+        {
+            "phase": "forward",
+            "iteration": 4,
+            "status": "running",
+        },
+        author="test",
+    )
+
+    payload = collector.apply_control(
+        session_id,
+        command="pause",
+        content="",
+        author="human",
+    )
+    assert payload["command"] == "pause"
+    assert payload["status"] == "paused"
+    assert payload["phase"] == "forward"
+    assert payload["iteration"] == 4
+    assert payload["author"] == "human"

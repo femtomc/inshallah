@@ -14,9 +14,14 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, unquote, urlparse
 
+from .runtime.config import ProgramFileConfig, load_config
 from .forum import Forum
 from .issue import Issue
+from .runner import CodexPhaseModel, LoopfarmConfig, run_loop
+from .stores.issue import ISSUE_STATUSES
+from .stores.session import SessionStore
 from .util import utc_now_iso
+from .util import new_session_id
 
 _SESSION_TOPIC_RE = re.compile(r"^(?P<prefix>loopfarm):session:(?P<session_id>[^\s]+)$")
 _MESSAGE_SUMMARY_MAX = 220
@@ -89,6 +94,42 @@ _HTML_TEMPLATE = """<!doctype html>
       color: var(--fg);
       padding: 6px 8px;
       font: inherit;
+    }
+    .actions-row {
+      display: grid;
+      gap: 6px;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      align-items: center;
+      margin-top: 4px;
+    }
+    .actions-row.tight {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+    .actions-row input, .actions-row select, .actions-row button {
+      width: 100%;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--panel);
+      color: var(--fg);
+      padding: 6px 8px;
+      font: inherit;
+    }
+    .actions-row button {
+      background: var(--panel-2);
+      font-weight: 700;
+    }
+    .actions-row button:hover {
+      border-color: var(--accent);
+      cursor: pointer;
+    }
+    .panel-actions {
+      padding: 8px;
+      border-bottom: 1px solid var(--border);
+      background: #0f1318;
+    }
+    .panel-actions .label {
+      color: var(--muted);
+      margin-bottom: 4px;
     }
     .container {
       display: grid;
@@ -175,6 +216,13 @@ _HTML_TEMPLATE = """<!doctype html>
       <input id="filter" type="text" placeholder="filter sessions/issues/topics (id, title, prompt, tag)" />
       <span id="host" class="hint"></span>
     </div>
+    <div class="actions-row">
+      <input id="start-prompt" type="text" placeholder="new loop prompt" />
+      <input id="start-program" type="text" placeholder="program (optional)" />
+      <input id="start-project" type="text" placeholder="project override (optional)" />
+      <button id="start-loop">Start Loop</button>
+    </div>
+    <div id="action-status" class="hint"></div>
   </header>
 
   <main class="container">
@@ -194,11 +242,52 @@ _HTML_TEMPLATE = """<!doctype html>
       <h2>Details</h2>
       <div id="details-empty" class="hint">Tap a session or forum topic for details.</div>
       <pre id="details-pre" class="mono-pre" style="display:none"></pre>
+      <div id="session-controls" class="panel-actions" style="display:none">
+        <div class="label">Session Controls</div>
+        <div class="actions-row tight">
+          <button id="session-pause">Pause</button>
+          <button id="session-resume">Resume</button>
+          <button id="session-stop">Stop</button>
+        </div>
+        <div class="actions-row">
+          <input id="session-context" type="text" placeholder="session context override" />
+          <input id="session-author" type="text" placeholder="author (optional)" />
+          <button id="session-context-set">Set Context</button>
+          <button id="session-context-clear">Clear Context</button>
+        </div>
+      </div>
       <div id="topic-messages"></div>
     </section>
 
     <section id="panel-issues" class="panel">
       <h2>Issues</h2>
+      <div class="panel-actions">
+        <div class="label">Create Issue</div>
+        <div class="actions-row">
+          <input id="issue-title" type="text" placeholder="issue title" />
+          <input id="issue-tags" type="text" placeholder="tags (comma-separated)" />
+          <select id="issue-priority">
+            <option value="1">P1</option>
+            <option value="2">P2</option>
+            <option value="3" selected>P3</option>
+            <option value="4">P4</option>
+            <option value="5">P5</option>
+          </select>
+          <button id="issue-create">Create</button>
+        </div>
+        <div class="label">Update Selected Issue</div>
+        <div class="actions-row">
+          <input id="issue-selected" type="text" placeholder="select an issue row" readonly />
+          <select id="issue-status">
+            <option value="open">open</option>
+            <option value="in_progress">in_progress</option>
+            <option value="paused">paused</option>
+            <option value="closed">closed</option>
+          </select>
+          <input id="issue-comment" type="text" placeholder="comment for selected issue" />
+          <button id="issue-update">Apply</button>
+        </div>
+      </div>
       <div class="scroll">
         <table>
           <thead>
@@ -211,6 +300,15 @@ _HTML_TEMPLATE = """<!doctype html>
 
     <section id="panel-forum" class="panel">
       <h2>Forum Topics</h2>
+      <div class="panel-actions">
+        <div class="label">Post Message</div>
+        <div class="actions-row">
+          <input id="forum-topic" type="text" placeholder="topic name" />
+          <input id="forum-author" type="text" placeholder="author (optional)" />
+          <input id="forum-message" type="text" placeholder="message" />
+          <button id="forum-post">Post</button>
+        </div>
+      </div>
       <div class="scroll">
         <table>
           <thead>
@@ -226,9 +324,11 @@ _HTML_TEMPLATE = """<!doctype html>
     const REFRESH_MS = __REFRESH_MS__;
     const state = {
       data: null,
+      meta: null,
       filter: "",
       selectedSession: null,
       selectedTopic: null,
+      selectedIssue: null,
     };
 
     function esc(v) {
@@ -245,6 +345,46 @@ _HTML_TEMPLATE = """<!doctype html>
     function isMatch(text) {
       if (!state.filter) return true;
       return String(text || "").toLowerCase().includes(state.filter);
+    }
+
+    function showActionStatus(message) {
+      const node = document.getElementById("action-status");
+      node.textContent = message || "";
+    }
+
+    function setSessionControlsVisible(visible) {
+      document.getElementById("session-controls").style.display = visible ? "block" : "none";
+    }
+
+    async function apiGet(url) {
+      const resp = await fetch(url, { cache: "no-store" });
+      if (!resp.ok) {
+        let err = `status ${resp.status}`;
+        try {
+          const payload = await resp.json();
+          if (payload && payload.error) err = payload.error;
+        } catch (_) {}
+        throw new Error(err);
+      }
+      return await resp.json();
+    }
+
+    async function apiPost(url, payload) {
+      const resp = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        cache: "no-store",
+        body: JSON.stringify(payload || {}),
+      });
+      if (!resp.ok) {
+        let err = `status ${resp.status}`;
+        try {
+          const body = await resp.json();
+          if (body && body.error) err = body.error;
+        } catch (_) {}
+        throw new Error(err);
+      }
+      return await resp.json();
     }
 
     function applyMetrics(data) {
@@ -282,9 +422,10 @@ _HTML_TEMPLATE = """<!doctype html>
         return isMatch(hay);
       });
       const html = rows.map((i) => {
-        return `<tr>`
+        const statusClass = `status-${String(i.status || "").toLowerCase()}`;
+        return `<tr data-kind="issue" data-id="${esc(i.id)}">`
           + `<td>${esc(i.id)}</td>`
-          + `<td>${esc(i.status)}</td>`
+          + `<td class="${statusClass}">${esc(i.status)}</td>`
           + `<td>${esc(i.priority ?? "-")}</td>`
           + `<td>${esc(fmtTime(i.updated_at_iso || i.updated_at))}</td>`
           + `<td>${esc(i.title)}</td>`
@@ -310,10 +451,12 @@ _HTML_TEMPLATE = """<!doctype html>
       const detailsEmpty = document.getElementById("details-empty");
       const topicMessages = document.getElementById("topic-messages");
       topicMessages.innerHTML = "";
+      setSessionControlsVisible(true);
       const session = (state.data.sessions || []).find((s) => s.session_id === sessionId);
       if (!session) {
         detailsEmpty.style.display = "block";
         detailsPre.style.display = "none";
+        setSessionControlsVisible(false);
         return;
       }
       const lines = [];
@@ -341,24 +484,73 @@ _HTML_TEMPLATE = """<!doctype html>
       detailsPre.style.display = "block";
     }
 
+    async function renderIssueDetail(issueId) {
+      const detailsPre = document.getElementById("details-pre");
+      const detailsEmpty = document.getElementById("details-empty");
+      const topicMessages = document.getElementById("topic-messages");
+      topicMessages.innerHTML = "";
+      setSessionControlsVisible(false);
+      detailsEmpty.style.display = "none";
+      detailsPre.style.display = "none";
+      detailsPre.textContent = "";
+      try {
+        const issue = await apiGet(`/api/issues/${encodeURIComponent(issueId)}`);
+        const lines = [];
+        lines.push(`issue:     ${issue.id || "-"}`);
+        lines.push(`status:    ${issue.status || "-"}`);
+        lines.push(`priority:  P${issue.priority ?? "-"}`);
+        lines.push(`created:   ${fmtTime(issue.created_at_iso || issue.created_at)}`);
+        lines.push(`updated:   ${fmtTime(issue.updated_at_iso || issue.updated_at)}`);
+        lines.push(`title:     ${issue.title || ""}`);
+        lines.push("");
+        lines.push("body:");
+        lines.push(issue.body || "-");
+        lines.push("");
+        lines.push("dependencies:");
+        const deps = issue.dependencies || [];
+        if (!deps.length) {
+          lines.push("  (none)");
+        } else {
+          for (const dep of deps) {
+            lines.push(`  ${dep.src_id} ${dep.type} ${dep.dst_id} (${dep.direction || "?"}, active=${dep.active ? "yes" : "no"})`);
+          }
+        }
+        lines.push("");
+        lines.push("comments:");
+        const comments = issue.comments || [];
+        if (!comments.length) {
+          lines.push("  (none)");
+        } else {
+          for (const c of comments) {
+            lines.push(`  [${c.id}] ${c.author || "unknown"} @ ${fmtTime(c.created_at_iso || c.created_at)}`);
+            lines.push(`  ${c.body || ""}`);
+          }
+        }
+        detailsPre.textContent = lines.join("\n");
+        detailsPre.style.display = "block";
+      } catch (err) {
+        detailsPre.textContent = `failed to load issue ${issueId}: ${err.message || err}`;
+        detailsPre.style.display = "block";
+      }
+    }
+
     async function renderTopicDetail(topicName) {
       const detailsPre = document.getElementById("details-pre");
       const detailsEmpty = document.getElementById("details-empty");
       const topicMessages = document.getElementById("topic-messages");
+      setSessionControlsVisible(false);
       detailsPre.style.display = "none";
       detailsEmpty.style.display = "none";
       topicMessages.innerHTML = `<div class="hint">loading ${esc(topicName)}...</div>`;
       try {
-        const resp = await fetch(`/api/topic?name=${encodeURIComponent(topicName)}&limit=20`, { cache: "no-store" });
-        if (!resp.ok) throw new Error(`status ${resp.status}`);
-        const data = await resp.json();
+        const data = await apiGet(`/api/topic?name=${encodeURIComponent(topicName)}&limit=20`);
         const lines = [`topic: ${topicName}`, `messages: ${(data.messages || []).length}`];
         detailsPre.textContent = lines.join("\n");
         detailsPre.style.display = "block";
         topicMessages.innerHTML = (data.messages || []).map((m) => {
           return `<div class="topic-msg">`
-            + `<div class="meta">${esc(fmtTime(m.created_at_iso || m.created_at))} · ${esc(m.id || "-")}</div>`
-            + `<div class="body">${esc(m.summary || "")}</div>`
+            + `<div class="meta">${esc(fmtTime(m.created_at_iso || m.created_at))} · ${esc(m.id || "-")} · ${esc(m.author || "unknown")}</div>`
+            + `<div class="body">${esc(m.body || m.summary || "")}</div>`
             + `</div>`;
         }).join("") || `<div class="hint">No messages.</div>`;
       } catch (err) {
@@ -381,7 +573,19 @@ _HTML_TEMPLATE = """<!doctype html>
         if (!row) return;
         state.selectedSession = row.getAttribute("data-id");
         state.selectedTopic = null;
+        state.selectedIssue = null;
+        document.getElementById("issue-selected").value = "";
         renderSessionDetail(state.selectedSession);
+      });
+
+      document.getElementById("issues-body").addEventListener("click", (ev) => {
+        const row = ev.target.closest("tr[data-kind='issue']");
+        if (!row) return;
+        state.selectedIssue = row.getAttribute("data-id");
+        state.selectedSession = null;
+        state.selectedTopic = null;
+        document.getElementById("issue-selected").value = state.selectedIssue || "";
+        renderIssueDetail(state.selectedIssue);
       });
 
       document.getElementById("topics-body").addEventListener("click", (ev) => {
@@ -389,15 +593,137 @@ _HTML_TEMPLATE = """<!doctype html>
         if (!row) return;
         state.selectedTopic = row.getAttribute("data-name");
         state.selectedSession = null;
+        state.selectedIssue = null;
+        document.getElementById("issue-selected").value = "";
         renderTopicDetail(state.selectedTopic);
+      });
+
+      document.getElementById("start-loop").addEventListener("click", async () => {
+        const prompt = String(document.getElementById("start-prompt").value || "").trim();
+        const program = String(document.getElementById("start-program").value || "").trim();
+        const project = String(document.getElementById("start-project").value || "").trim();
+        try {
+          const result = await apiPost("/api/loops/start", {
+            prompt,
+            program: program || null,
+            project: project || null,
+          });
+          showActionStatus(`started ${result.session_id} (${result.program})`);
+          state.selectedSession = result.session_id;
+          state.selectedTopic = null;
+          state.selectedIssue = null;
+          document.getElementById("start-prompt").value = "";
+          await tick();
+        } catch (err) {
+          showActionStatus(`failed to start loop: ${err.message || err}`);
+        }
+      });
+
+      async function sendControl(command, content) {
+        if (!state.selectedSession) {
+          showActionStatus("select a session first");
+          return;
+        }
+        const author = String(document.getElementById("session-author").value || "").trim();
+        try {
+          await apiPost(`/api/loops/${encodeURIComponent(state.selectedSession)}/control`, {
+            command,
+            content: content || "",
+            author: author || null,
+          });
+          showActionStatus(`${command} sent to ${state.selectedSession}`);
+          await tick();
+        } catch (err) {
+          showActionStatus(`control failed: ${err.message || err}`);
+        }
+      }
+
+      document.getElementById("session-pause").addEventListener("click", async () => sendControl("pause", ""));
+      document.getElementById("session-resume").addEventListener("click", async () => sendControl("resume", ""));
+      document.getElementById("session-stop").addEventListener("click", async () => sendControl("stop", ""));
+      document.getElementById("session-context-set").addEventListener("click", async () => {
+        const content = String(document.getElementById("session-context").value || "").trim();
+        await sendControl("context_set", content);
+      });
+      document.getElementById("session-context-clear").addEventListener("click", async () => {
+        await sendControl("context_clear", "");
+      });
+
+      document.getElementById("issue-create").addEventListener("click", async () => {
+        const title = String(document.getElementById("issue-title").value || "").trim();
+        const tags = String(document.getElementById("issue-tags").value || "").trim();
+        const priority = Number(document.getElementById("issue-priority").value || "3");
+        try {
+          const issue = await apiPost("/api/issues/create", {
+            title,
+            priority,
+            tags,
+          });
+          document.getElementById("issue-title").value = "";
+          document.getElementById("issue-tags").value = "";
+          showActionStatus(`created issue ${issue.id}`);
+          state.selectedIssue = issue.id;
+          state.selectedSession = null;
+          state.selectedTopic = null;
+          document.getElementById("issue-selected").value = issue.id || "";
+          await tick();
+          await renderIssueDetail(issue.id);
+        } catch (err) {
+          showActionStatus(`issue create failed: ${err.message || err}`);
+        }
+      });
+
+      document.getElementById("issue-update").addEventListener("click", async () => {
+        const issueId = String(document.getElementById("issue-selected").value || "").trim() || state.selectedIssue;
+        if (!issueId) {
+          showActionStatus("select an issue first");
+          return;
+        }
+        const status = String(document.getElementById("issue-status").value || "").trim();
+        const comment = String(document.getElementById("issue-comment").value || "").trim();
+        try {
+          await apiPost(`/api/issues/${encodeURIComponent(issueId)}/status`, { status });
+          if (comment) {
+            await apiPost(`/api/issues/${encodeURIComponent(issueId)}/comment`, { message: comment });
+          }
+          document.getElementById("issue-comment").value = "";
+          showActionStatus(`updated issue ${issueId}`);
+          state.selectedIssue = issueId;
+          state.selectedSession = null;
+          state.selectedTopic = null;
+          await tick();
+          await renderIssueDetail(issueId);
+        } catch (err) {
+          showActionStatus(`issue update failed: ${err.message || err}`);
+        }
+      });
+
+      document.getElementById("forum-post").addEventListener("click", async () => {
+        const topic = String(document.getElementById("forum-topic").value || "").trim();
+        const message = String(document.getElementById("forum-message").value || "").trim();
+        const author = String(document.getElementById("forum-author").value || "").trim();
+        try {
+          const row = await apiPost("/api/forum/post", {
+            topic,
+            message,
+            author: author || null,
+          });
+          showActionStatus(`posted forum message ${row.id} to ${row.topic}`);
+          document.getElementById("forum-message").value = "";
+          state.selectedTopic = row.topic;
+          state.selectedSession = null;
+          state.selectedIssue = null;
+          await tick();
+          await renderTopicDetail(row.topic);
+        } catch (err) {
+          showActionStatus(`forum post failed: ${err.message || err}`);
+        }
       });
     }
 
     async function tick() {
       try {
-        const resp = await fetch("/api/overview", { cache: "no-store" });
-        if (!resp.ok) throw new Error(`status ${resp.status}`);
-        const data = await resp.json();
+        const data = await apiGet("/api/overview");
         state.data = data;
         applyMetrics(data);
         renderSessions(data);
@@ -405,17 +731,31 @@ _HTML_TEMPLATE = """<!doctype html>
         renderTopics(data);
         if (state.selectedSession) {
           renderSessionDetail(state.selectedSession);
+        } else if (state.selectedIssue) {
+          await renderIssueDetail(state.selectedIssue);
         } else if (state.selectedTopic) {
-          renderTopicDetail(state.selectedTopic);
+          await renderTopicDetail(state.selectedTopic);
+        } else {
+          setSessionControlsVisible(false);
         }
       } catch (err) {
         document.getElementById("generated").textContent = `error: ${err.message || err}`;
       }
     }
 
-    attachHandlers();
-    tick();
-    setInterval(tick, REFRESH_MS);
+    async function init() {
+      attachHandlers();
+      try {
+        state.meta = await apiGet("/api/meta");
+        if (state.meta && state.meta.program && state.meta.program.name) {
+          document.getElementById("start-program").value = state.meta.program.name;
+        }
+      } catch (_) {}
+      await tick();
+      setInterval(tick, REFRESH_MS);
+    }
+
+    init();
   </script>
 </body>
 </html>
@@ -507,6 +847,148 @@ def _extract_summary_from_payload(payload: dict[str, Any]) -> str:
     return _shorten(json.dumps(payload, ensure_ascii=False))
 
 
+def _required_phases(program: ProgramFileConfig) -> list[str]:
+    phases: list[str] = []
+    for phase, _ in program.loop_steps:
+        if phase not in phases:
+            phases.append(phase)
+    return phases
+
+
+def _resolve_program(repo_root: Path, program_name: str | None) -> ProgramFileConfig:
+    file_cfg = load_config(repo_root)
+    program = file_cfg.program
+    if program is None:
+        raise ValueError(
+            file_cfg.error
+            or "missing or invalid .loopfarm/loopfarm.toml [program] configuration"
+        )
+
+    requested = (program_name or "").strip()
+    if requested and requested != program.name:
+        raise ValueError(
+            f"program {requested!r} not found (configured: {program.name!r})"
+        )
+    return program
+
+
+def _build_loop_config(
+    *,
+    repo_root: Path,
+    prompt: str,
+    program_name: str | None,
+    project_name: str | None,
+) -> tuple[LoopfarmConfig, ProgramFileConfig]:
+    trimmed_prompt = prompt.strip()
+    if not trimmed_prompt:
+        raise ValueError("missing prompt")
+
+    program = _resolve_program(repo_root, program_name)
+    required_phases = _required_phases(program)
+
+    phase_cli_overrides: list[tuple[str, str]] = []
+    phase_prompt_overrides: list[tuple[str, str]] = []
+    phase_injections: list[tuple[str, tuple[str, ...]]] = []
+    phase_models: list[tuple[str, CodexPhaseModel]] = []
+
+    for phase in required_phases:
+        phase_cfg = program.phases.get(phase)
+        if phase_cfg is None:
+            raise ValueError(f"missing [program.phase.{phase}] configuration")
+
+        prompt_path = (phase_cfg.prompt or "").strip()
+        if not prompt_path:
+            raise ValueError(
+                f"missing prompt for phase {phase!r} in [program.phase.{phase}]"
+            )
+
+        phase_cli = (phase_cfg.cli or "").strip()
+        if not phase_cli:
+            raise ValueError(f"missing cli for phase {phase!r} in [program.phase.{phase}]")
+
+        phase_model = (phase_cfg.model or "").strip()
+        if phase_cli != "kimi" and not phase_model:
+            raise ValueError(
+                f"missing model for phase {phase!r} in [program.phase.{phase}]"
+            )
+
+        prompt_file = Path(prompt_path)
+        if not prompt_file.is_absolute():
+            prompt_file = repo_root / prompt_file
+        if not prompt_file.exists() or not prompt_file.is_file():
+            raise ValueError(f"prompt file not found: {prompt_path} (phase: {phase})")
+
+        phase_prompt_overrides.append((phase, prompt_path))
+        phase_cli_overrides.append((phase, phase_cli))
+        if phase_cfg.inject:
+            phase_injections.append((phase, phase_cfg.inject))
+        if phase_model:
+            reasoning = (phase_cfg.reasoning or "xhigh").strip() or "xhigh"
+            phase_models.append((phase, CodexPhaseModel(phase_model, reasoning)))
+
+    project = (project_name or program.project or repo_root.name).strip() or repo_root.name
+    cfg = LoopfarmConfig(
+        repo_root=repo_root,
+        project=str(project),
+        prompt=trimmed_prompt,
+        loop_steps=program.loop_steps,
+        termination_phase=program.termination_phase,
+        loop_report_source_phase=program.report_source_phase,
+        loop_report_target_phases=program.report_target_phases,
+        phase_models=tuple(phase_models),
+        phase_cli_overrides=tuple(phase_cli_overrides),
+        phase_prompt_overrides=tuple(phase_prompt_overrides),
+        phase_injections=tuple(phase_injections),
+    )
+    return cfg, program
+
+
+class LoopLauncher:
+    def __init__(self, repo_root: Path) -> None:
+        self.repo_root = repo_root
+        self._lock = threading.Lock()
+        self._threads: dict[str, threading.Thread] = {}
+
+    def start(
+        self,
+        *,
+        prompt: str,
+        program_name: str | None,
+        project_name: str | None,
+    ) -> dict[str, Any]:
+        cfg, program = _build_loop_config(
+            repo_root=self.repo_root,
+            prompt=prompt,
+            program_name=program_name,
+            project_name=project_name,
+        )
+        session_id = new_session_id()
+
+        def _target() -> None:
+            try:
+                run_loop(cfg, session_id=session_id)
+            finally:
+                with self._lock:
+                    self._threads.pop(session_id, None)
+
+        thread = threading.Thread(
+            target=_target,
+            name=f"loopfarm-session-{session_id}",
+            daemon=True,
+        )
+        with self._lock:
+            self._threads[session_id] = thread
+        thread.start()
+
+        return {
+            "session_id": session_id,
+            "program": program.name,
+            "project": cfg.project,
+            "status": "running",
+            "started_at": utc_now_iso(),
+        }
+
+
 @dataclass
 class MonitorConfig:
     repo_root: Path
@@ -524,6 +1006,7 @@ class MonitorCollector:
         self.repo_root = repo_root
         self.forum = Forum.from_workdir(repo_root)
         self.issue = Issue.from_workdir(repo_root)
+        self.session_store = SessionStore(self.forum)
 
     def _forum_topics(self) -> list[dict[str, Any]]:
         return self.forum.list_topics()
@@ -533,6 +1016,77 @@ class MonitorCollector:
 
     def _issue_list(self, status: str) -> list[dict[str, Any]]:
         return self.issue.list(status=status, limit=1000)
+
+    def create_issue(
+        self,
+        *,
+        title: str,
+        body: str = "",
+        status: str = "open",
+        priority: int = 3,
+        tags: list[str] | None = None,
+    ) -> dict[str, Any]:
+        return self.issue.create(
+            title=title,
+            body=body,
+            status=status,
+            priority=priority,
+            tags=tags or [],
+        )
+
+    def set_issue_status(self, issue_id: str, status: str) -> dict[str, Any]:
+        return self.issue.set_status(issue_id, status)
+
+    def get_issue(self, issue_id: str) -> dict[str, Any] | None:
+        return self.issue.show(issue_id)
+
+    def add_issue_comment(
+        self, issue_id: str, message: str, *, author: str | None
+    ) -> dict[str, Any]:
+        return self.issue.add_comment(issue_id, message, author=author)
+
+    def post_forum(
+        self, topic: str, message: str, *, author: str | None
+    ) -> dict[str, Any]:
+        return self.forum.post(topic, message, author=author)
+
+    def apply_control(
+        self,
+        session_id: str,
+        *,
+        command: str,
+        content: str | None,
+        author: str | None,
+    ) -> dict[str, Any]:
+        cmd = command.strip().lower()
+        status_by_command = {
+            "pause": "paused",
+            "resume": "running",
+            "stop": "stopped",
+            "context_set": "running",
+            "context_clear": "running",
+        }
+        if cmd not in status_by_command:
+            raise ValueError(
+                "invalid control command (expected: pause, resume, stop, context_set, context_clear)"
+            )
+
+        msg = (content or "").strip()
+        if cmd == "context_set" and not msg:
+            raise ValueError("content is required for context_set")
+
+        meta = self.session_store.get_session_meta(session_id) or {}
+        phase = str(meta.get("phase") or "").strip() or None
+        iteration = _to_int(meta.get("iteration"))
+        return self.session_store.set_control_state(
+            session_id,
+            status=status_by_command[cmd],
+            command=cmd,
+            phase=phase,
+            iteration=iteration,
+            author=(author or "").strip() or "monitor",
+            content=msg or None,
+        )
 
     def _matching_session_topics(
         self, topics: list[dict[str, Any]]
@@ -731,9 +1285,11 @@ class MonitorCollector:
             rows.append(
                 {
                     "id": message.get("id"),
+                    "author": message.get("author"),
                     "created_at": created_at,
                     "created_at_iso": _iso_from_epoch_ms(created_at),
                     "summary": summary,
+                    "body": str(body or ""),
                 }
             )
 
@@ -797,10 +1353,16 @@ class SnapshotCache:
             self._stamp = time.monotonic()
         return snapshot
 
+    def invalidate(self) -> None:
+        with self._lock:
+            self._snapshot = None
+            self._stamp = 0.0
+
 
 class MonitorHandler(BaseHTTPRequestHandler):
     collector: MonitorCollector
     cache: SnapshotCache
+    launcher: LoopLauncher
     refresh_seconds: int
 
     def log_message(self, format: str, *args: Any) -> None:
@@ -818,6 +1380,38 @@ class MonitorHandler(BaseHTTPRequestHandler):
             return
         if path == "/api/overview":
             self._send_json(200, self.cache.get())
+            return
+        if path == "/api/meta":
+            try:
+                program = _resolve_program(self.collector.repo_root, None)
+                program_payload: dict[str, Any] | None = {
+                    "name": program.name,
+                    "project": program.project,
+                    "steps": [[phase, repeat] for phase, repeat in program.loop_steps],
+                    "termination_phase": program.termination_phase,
+                    "report_source_phase": program.report_source_phase,
+                    "report_target_phases": list(program.report_target_phases),
+                }
+                program_error = None
+            except ValueError as exc:
+                program_payload = None
+                program_error = str(exc)
+
+            self._send_json(
+                200,
+                {
+                    "issue_statuses": list(ISSUE_STATUSES),
+                    "control_commands": [
+                        "pause",
+                        "resume",
+                        "stop",
+                        "context_set",
+                        "context_clear",
+                    ],
+                    "program": program_payload,
+                    "program_error": program_error,
+                },
+            )
             return
         if path.startswith("/api/session/"):
             session_id = unquote(path[len("/api/session/") :])
@@ -845,6 +1439,129 @@ class MonitorHandler(BaseHTTPRequestHandler):
             payload = self.collector.collect_topic_messages(names[0], limit=limit)
             self._send_json(200, payload)
             return
+        issue_match = re.match(r"^/api/issues/(?P<issue_id>[^/]+)$", path)
+        if issue_match:
+            issue_id = unquote(issue_match.group("issue_id"))
+            row = self.collector.get_issue(issue_id)
+            if row is None:
+                self._send_json(404, {"error": f"issue not found: {issue_id}"})
+                return
+            self._send_json(200, row)
+            return
+
+        self._send_json(404, {"error": "not found"})
+
+    def do_POST(self) -> None:
+        parsed = urlparse(self.path)
+        path = parsed.path
+        try:
+            payload = self._read_json_body()
+        except ValueError as exc:
+            self._send_json(400, {"error": str(exc)})
+            return
+
+        try:
+            if path == "/api/loops/start":
+                prompt = str(payload.get("prompt") or "").strip()
+                program_name = payload.get("program")
+                if program_name is not None:
+                    program_name = str(program_name)
+                project_name = payload.get("project")
+                if project_name is not None:
+                    project_name = str(project_name)
+                data = self.launcher.start(
+                    prompt=prompt,
+                    program_name=program_name,
+                    project_name=project_name,
+                )
+                self.cache.invalidate()
+                self._send_json(200, data)
+                return
+
+            control_match = re.match(r"^/api/loops/(?P<session_id>[^/]+)/control$", path)
+            if control_match:
+                session_id = unquote(control_match.group("session_id"))
+                command = str(payload.get("command") or "").strip()
+                content = payload.get("content")
+                if content is not None:
+                    content = str(content)
+                author = payload.get("author")
+                if author is not None:
+                    author = str(author)
+                data = self.collector.apply_control(
+                    session_id,
+                    command=command,
+                    content=content,
+                    author=author,
+                )
+                self.cache.invalidate()
+                self._send_json(200, {"ok": True, "session_id": session_id, "control": data})
+                return
+
+            if path == "/api/issues/create":
+                title = str(payload.get("title") or "").strip()
+                body = str(payload.get("body") or "")
+                status = str(payload.get("status") or "open").strip() or "open"
+                priority = _to_int(payload.get("priority"))
+                tags_raw = payload.get("tags")
+                tags: list[str] = []
+                if isinstance(tags_raw, list):
+                    for item in tags_raw:
+                        text = str(item).strip()
+                        if text:
+                            tags.append(text)
+                elif isinstance(tags_raw, str):
+                    for item in tags_raw.split(","):
+                        text = item.strip()
+                        if text:
+                            tags.append(text)
+                row = self.collector.create_issue(
+                    title=title,
+                    body=body,
+                    status=status,
+                    priority=priority if priority is not None else 3,
+                    tags=tags,
+                )
+                self.cache.invalidate()
+                self._send_json(200, row)
+                return
+
+            issue_status_match = re.match(r"^/api/issues/(?P<issue_id>[^/]+)/status$", path)
+            if issue_status_match:
+                issue_id = unquote(issue_status_match.group("issue_id"))
+                status = str(payload.get("status") or "").strip()
+                row = self.collector.set_issue_status(issue_id, status)
+                self.cache.invalidate()
+                self._send_json(200, row)
+                return
+
+            issue_comment_match = re.match(r"^/api/issues/(?P<issue_id>[^/]+)/comment$", path)
+            if issue_comment_match:
+                issue_id = unquote(issue_comment_match.group("issue_id"))
+                message = str(payload.get("message") or "").strip()
+                author = payload.get("author")
+                if author is not None:
+                    author = str(author)
+                row = self.collector.add_issue_comment(issue_id, message, author=author)
+                self._send_json(200, row)
+                return
+
+            if path == "/api/forum/post":
+                topic = str(payload.get("topic") or "").strip()
+                message = str(payload.get("message") or "").strip()
+                author = payload.get("author")
+                if author is not None:
+                    author = str(author)
+                row = self.collector.post_forum(topic, message, author=author)
+                self.cache.invalidate()
+                self._send_json(200, row)
+                return
+        except ValueError as exc:
+            self._send_json(400, {"error": str(exc)})
+            return
+        except Exception as exc:
+            self._send_json(500, {"error": f"internal error: {exc}"})
+            return
 
         self._send_json(404, {"error": "not found"})
 
@@ -858,7 +1575,7 @@ class MonitorHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
-    def _send_json(self, status: int, payload: dict[str, Any]) -> None:
+    def _send_json(self, status: int, payload: Any) -> None:
         data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -866,6 +1583,27 @@ class MonitorHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
         self.wfile.write(data)
+
+    def _read_json_body(self) -> dict[str, Any]:
+        raw_len = self.headers.get("Content-Length")
+        if raw_len is None:
+            return {}
+        try:
+            length = max(0, int(raw_len))
+        except ValueError:
+            raise ValueError("invalid Content-Length header")
+        if length == 0:
+            return {}
+        data = self.rfile.read(length)
+        if not data:
+            return {}
+        try:
+            payload = json.loads(data.decode("utf-8"))
+        except Exception as exc:
+            raise ValueError(f"invalid JSON body: {exc}") from exc
+        if not isinstance(payload, dict):
+            raise ValueError("JSON body must be an object")
+        return payload
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -913,7 +1651,10 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def _make_handler(
-    collector: MonitorCollector, cache: SnapshotCache, refresh_seconds: int
+    collector: MonitorCollector,
+    cache: SnapshotCache,
+    refresh_seconds: int,
+    launcher: LoopLauncher,
 ) -> type[MonitorHandler]:
     class _Handler(MonitorHandler):
         pass
@@ -921,6 +1662,7 @@ def _make_handler(
     _Handler.collector = collector
     _Handler.cache = cache
     _Handler.refresh_seconds = refresh_seconds
+    _Handler.launcher = launcher
     return _Handler
 
 
@@ -938,6 +1680,7 @@ def main(argv: list[str] | None = None) -> None:
     )
 
     collector = MonitorCollector(cfg.repo_root)
+    launcher = LoopLauncher(cfg.repo_root)
     cache = SnapshotCache(
         collector,
         ttl_seconds=cfg.cache_ttl_seconds,
@@ -946,7 +1689,12 @@ def main(argv: list[str] | None = None) -> None:
         max_topics=cfg.max_topics,
     )
 
-    handler_cls = _make_handler(collector, cache, cfg.refresh_seconds)
+    handler_cls = _make_handler(
+        collector,
+        cache,
+        cfg.refresh_seconds,
+        launcher,
+    )
     server = ThreadingHTTPServer((cfg.host, cfg.port), handler_cls)
     print(
         f"loopfarm monitor listening on http://{cfg.host}:{cfg.port} "
