@@ -16,7 +16,7 @@ USER PROMPT: **{{PROMPT}}**
 2. Verify findings are captured in `loopfarm forum` and linked to `loopfarm issue`.
 3. Replan issue priorities/dependencies to ensure implementation readiness.
 4. File follow-up research tasks for remaining unknowns.
-5. Decide whether preparation is sufficient to hand off to `--mode implementation`.
+5. Decide whether preparation is sufficient to hand off to an implementation program.
 
 Do NOT implement production code in this phase.
 

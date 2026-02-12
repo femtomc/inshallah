@@ -30,6 +30,10 @@ def _control_topic(session_id: str) -> str:
     return f"loopfarm:control:{session_id}"
 
 
+def _envelope(schema: str, data: dict[str, Any]) -> str:
+    return json.dumps({"schema": schema, "timestamp": "2026-02-12T00:00:00Z", "data": data})
+
+
 def test_get_session_meta_missing_topic_returns_none() -> None:
     store = SessionStore(FakeForum())
 
@@ -40,7 +44,7 @@ def test_get_session_meta_skips_malformed_json() -> None:
     messages = {
         _session_topic("sess"): [
             {"id": 1, "body": "{"},
-            {"id": 2, "body": json.dumps({"status": "running"})},
+            {"id": 2, "body": _envelope(SESSION_META_SCHEMA, {"status": "running"})},
         ]
     }
     store = SessionStore(FakeForum(messages))
@@ -54,9 +58,18 @@ def test_get_session_meta_skips_malformed_json() -> None:
 def test_read_last_prefers_highest_id() -> None:
     messages = {
         _control_topic("sess"): [
-            {"id": "5", "body": json.dumps({"status": "paused", "command": "pause"})},
-            {"id": "9", "body": json.dumps({"status": "running", "command": "resume"})},
-            {"id": "2", "body": json.dumps({"status": "stopped", "command": "stop"})},
+            {
+                "id": "5",
+                "body": _envelope(CONTROL_STATE_SCHEMA, {"status": "paused", "command": "pause"}),
+            },
+            {
+                "id": "9",
+                "body": _envelope(CONTROL_STATE_SCHEMA, {"status": "running", "command": "resume"}),
+            },
+            {
+                "id": "2",
+                "body": _envelope(CONTROL_STATE_SCHEMA, {"status": "stopped", "command": "stop"}),
+            },
         ]
     }
     store = SessionStore(FakeForum(messages))
@@ -73,12 +86,12 @@ def test_read_latest_prefers_created_at() -> None:
             {
                 "id": "01JH8TSQYH7J0C3C7P2T0K6X7A",
                 "created_at": 1000,
-                "body": json.dumps({"status": "running", "command": "resume"}),
+                "body": _envelope(CONTROL_STATE_SCHEMA, {"status": "running", "command": "resume"}),
             },
             {
                 "id": "01JH8TSR2T0HQD2M6KZ3BXY0Z2",
                 "created_at": 2000,
-                "body": json.dumps({"status": "paused", "command": "pause"}),
+                "body": _envelope(CONTROL_STATE_SCHEMA, {"status": "paused", "command": "pause"}),
             },
         ]
     }
@@ -95,11 +108,11 @@ def test_read_latest_uses_newest_first_when_no_ids() -> None:
         _control_topic("sess"): [
             {
                 "id": "01JH8TSR2T0HQD2M6KZ3BXY0Z2",
-                "body": json.dumps({"status": "paused", "command": "pause"}),
+                "body": _envelope(CONTROL_STATE_SCHEMA, {"status": "paused", "command": "pause"}),
             },
             {
                 "id": "01JH8TSQYH7J0C3C7P2T0K6X7A",
-                "body": json.dumps({"status": "running", "command": "resume"}),
+                "body": _envelope(CONTROL_STATE_SCHEMA, {"status": "running", "command": "resume"}),
             },
         ]
     }
@@ -114,7 +127,10 @@ def test_read_latest_uses_newest_first_when_no_ids() -> None:
 def test_update_session_meta_merges_and_posts_envelope() -> None:
     messages = {
         _session_topic("sess"): [
-            {"id": 3, "body": json.dumps({"prompt": "hello", "status": "running"})},
+            {
+                "id": 3,
+                "body": _envelope(SESSION_META_SCHEMA, {"prompt": "hello", "status": "running"}),
+            },
         ]
     }
     forum = FakeForum(messages)

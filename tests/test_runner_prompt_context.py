@@ -5,12 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from loopfarm.runner import (
-    CodexPhaseModel,
-    LoopfarmConfig,
-    LoopfarmRunner,
-    StopRequested,
-)
+from loopfarm.control_plane import ControlCheckpointResult
+from loopfarm.runner import CodexPhaseModel, LoopfarmConfig, LoopfarmRunner, StopRequested
 
 
 def _write_prompts(
@@ -19,7 +15,7 @@ def _write_prompts(
     include_placeholder: bool = True,
     include_required_summary: bool = True,
 ) -> None:
-    prompts_root = tmp_path / "loopfarm" / "prompts" / "implementation"
+    prompts_root = tmp_path / ".loopfarm" / "prompts"
     prompts_root.mkdir(parents=True)
     for phase in ("planning", "forward", "backward"):
         header = f"{phase.upper()} {{PROMPT}} {{SESSION}} {{PROJECT}}"
@@ -44,7 +40,7 @@ def _write_prompt_variants(
     *,
     marker: str,
 ) -> None:
-    prompts_root = tmp_path / "loopfarm" / "prompts" / "implementation"
+    prompts_root = tmp_path / ".loopfarm" / "prompts"
     prompts_root.mkdir(parents=True, exist_ok=True)
     for phase in ("planning", "forward", "backward"):
         header = f"{marker} {phase.upper()} {{PROMPT}} {{SESSION}} {{PROJECT}}"
@@ -58,17 +54,30 @@ def _write_prompt_variants(
 
 
 def _cfg(tmp_path: Path) -> LoopfarmConfig:
+    prompts_root = tmp_path / ".loopfarm" / "prompts"
     model = CodexPhaseModel(model="test", reasoning="fast")
     return LoopfarmConfig(
         repo_root=tmp_path,
-        cli="claude",
-        model_override=None,
-        skip_plan=True,
         project="test",
         prompt="Example prompt",
-        code_model=model,
-        plan_model=model,
-        review_model=model,
+        loop_plan_once=False,
+        loop_steps=(("forward", 1), ("backward", 1)),
+        termination_phase="backward",
+        phase_models=(
+            ("planning", model),
+            ("forward", model),
+            ("backward", model),
+        ),
+        phase_cli_overrides=(
+            ("planning", "claude"),
+            ("forward", "claude"),
+            ("backward", "claude"),
+        ),
+        phase_prompt_overrides=(
+            ("planning", str(prompts_root / "planning.md")),
+            ("forward", str(prompts_root / "forward.md")),
+            ("backward", str(prompts_root / "backward.md")),
+        ),
     )
 
 
@@ -127,89 +136,43 @@ def test_prompt_injects_context_before_summary_without_placeholder(
 def test_control_checkpoint_pause_then_resume(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _write_prompts(tmp_path)
     runner = LoopfarmRunner(_cfg(tmp_path))
-    runner.session_id = "sess"
 
-    states = [
-        {
-            "timestamp": "2026-02-12T10:00:00Z",
-            "command": "pause",
-            "author": "op",
-        },
-        {
-            "timestamp": "2026-02-12T10:00:01Z",
-            "command": "resume",
-            "author": "op",
-        },
-    ]
-
-    def next_state(_: str):
-        if states:
-            return states.pop(0)
-        return None
-
-    monkeypatch.setattr(runner, "_read_control_state", next_state)
-    monkeypatch.setattr(runner, "_sleep", lambda _seconds: None)
+    monkeypatch.setattr(
+        runner.control_plane,
+        "checkpoint",
+        lambda **_kwargs: ControlCheckpointResult(
+            paused=False,
+            session_status="running",
+            last_signature="sig-1",
+            stop_requested=False,
+        ),
+    )
 
     runner._control_checkpoint(session_id="sess", phase="forward", iteration=1)
 
     assert runner.paused is False
-    meta = runner.session_store.get_session_meta("sess") or {}
-    assert meta.get("status") == "running"
+    assert runner.session_status == "running"
 
 
 def test_control_checkpoint_stop_raises(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _write_prompts(tmp_path)
     runner = LoopfarmRunner(_cfg(tmp_path))
 
-    state = {
-        "timestamp": "2026-02-12T10:00:00Z",
-        "command": "stop",
-        "author": "op",
-    }
-
-    monkeypatch.setattr(runner, "_read_control_state", lambda _sid: state)
+    monkeypatch.setattr(
+        runner.control_plane,
+        "checkpoint",
+        lambda **_kwargs: ControlCheckpointResult(
+            paused=False,
+            session_status="stopped",
+            last_signature="sig-stop",
+            stop_requested=True,
+        ),
+    )
 
     with pytest.raises(StopRequested):
         runner._control_checkpoint(session_id="sess", phase="forward", iteration=1)
 
     assert runner.session_status == "stopped"
-
-
-def test_control_state_context_set_and_clear(tmp_path: Path) -> None:
-    _write_prompts(tmp_path)
-    runner = LoopfarmRunner(_cfg(tmp_path))
-    runner.session_id = "sess"
-
-    runner._apply_control_state(
-        state={
-            "timestamp": "2026-02-12T10:00:00Z",
-            "command": "context_set",
-            "content": "Use this context",
-            "author": "op",
-        },
-        session_id="sess",
-        phase="planning",
-        iteration=0,
-    )
-
-    assert runner.session_context_override == "Use this context"
-    meta = runner.session_store.get_session_meta("sess") or {}
-    assert meta.get("session_context") == "Use this context"
-
-    runner._apply_control_state(
-        state={
-            "timestamp": "2026-02-12T10:00:01Z",
-            "command": "context_clear",
-            "author": "op",
-        },
-        session_id="sess",
-        phase="planning",
-        iteration=0,
-    )
-
-    assert runner.session_context_override == ""
-    meta = runner.session_store.get_session_meta("sess") or {}
-    assert meta.get("session_context") == ""
 
 
 def test_load_session_context_override_from_store(tmp_path: Path) -> None:
@@ -226,10 +189,10 @@ def test_load_session_context_override_from_store(tmp_path: Path) -> None:
     assert runner.session_context_override == "Pinned guidance"
 
 
-def test_prompt_paths_use_shared_set_for_all_backends(tmp_path: Path) -> None:
+def test_prompt_paths_use_explicit_phase_templates(tmp_path: Path) -> None:
     _write_prompt_variants(tmp_path, marker="BASE")
 
-    cfg = replace(_cfg(tmp_path), forward_cli="codex")
+    cfg = replace(_cfg(tmp_path), phase_cli_overrides=(("planning", "codex"), ("forward", "codex"), ("backward", "codex")))
     runner = LoopfarmRunner(cfg)
 
     planning_prompt = runner._render_phase_prompt("sess", "planning")
@@ -241,71 +204,19 @@ def test_prompt_paths_use_shared_set_for_all_backends(tmp_path: Path) -> None:
     assert forward_prompt.startswith("BASE FORWARD")
 
 
-def test_prompt_path_precedence_mode_then_implementation_then_legacy(
-    tmp_path: Path,
-) -> None:
-    prompts_root = tmp_path / "loopfarm" / "prompts"
-    impl_root = prompts_root / "implementation"
-    research_root = prompts_root / "research"
-    impl_root.mkdir(parents=True, exist_ok=True)
-    research_root.mkdir(parents=True, exist_ok=True)
-
-    (prompts_root / "forward.md").write_text(
-        "LEGACY FORWARD {{PROMPT}}\n## Required Phase Summary\nSummary\n",
-        encoding="utf-8",
-    )
-    (impl_root / "forward.md").write_text(
-        "IMPLEMENTATION FORWARD {{PROMPT}}\n## Required Phase Summary\nSummary\n",
-        encoding="utf-8",
-    )
-    (research_root / "forward.md").write_text(
-        "RESEARCH FORWARD {{PROMPT}}\n## Required Phase Summary\nSummary\n",
-        encoding="utf-8",
-    )
-
-    research_runner = LoopfarmRunner(replace(_cfg(tmp_path), mode="research"))
-    writing_runner = LoopfarmRunner(replace(_cfg(tmp_path), mode="writing"))
-    no_mode_runner = LoopfarmRunner(_cfg(tmp_path))
-
-    assert research_runner._render_phase_prompt("sess", "forward").startswith(
-        "RESEARCH FORWARD"
-    )
-    assert writing_runner._render_phase_prompt("sess", "forward").startswith(
-        "IMPLEMENTATION FORWARD"
-    )
-    assert no_mode_runner._render_phase_prompt("sess", "forward").startswith(
-        "IMPLEMENTATION FORWARD"
-    )
-
-
-def test_prompt_path_supports_legacy_root_templates(tmp_path: Path) -> None:
-    prompts_root = tmp_path / "loopfarm" / "prompts"
-    prompts_root.mkdir(parents=True, exist_ok=True)
-    (prompts_root / "forward.md").write_text(
-        "LEGACY FORWARD {{PROMPT}}\n## Required Phase Summary\nSummary\n",
-        encoding="utf-8",
-    )
-
-    runner = LoopfarmRunner(replace(_cfg(tmp_path), mode="implementation"))
-
-    assert runner._render_phase_prompt("sess", "forward").startswith("LEGACY FORWARD")
-
-
-def test_writing_mode_injects_guidance_into_shared_prompts(
-    tmp_path: Path,
-) -> None:
+def test_injections_are_explicit_only(tmp_path: Path) -> None:
     _write_prompt_variants(tmp_path, marker="BASE")
 
-    cfg = replace(_cfg(tmp_path), forward_cli="codex", mode="writing")
-    runner = LoopfarmRunner(cfg)
+    runner_no_injection = LoopfarmRunner(_cfg(tmp_path))
+    no_injection = runner_no_injection._build_phase_prompt("sess", "forward")
+    assert "## Phase Briefing" not in no_injection
 
-    planning_prompt = runner._build_phase_prompt("sess", "planning")
-    forward_prompt = runner._build_phase_prompt("sess", "forward")
-    backward_prompt = runner._build_phase_prompt("sess", "backward")
+    cfg = replace(_cfg(tmp_path), phase_injections=(("forward", ("phase_briefing",)),))
+    runner_with_injection = LoopfarmRunner(cfg)
+    runner_with_injection.session_store.store_phase_summary(
+        "sess", "planning", 0, "plan summary"
+    )
 
-    assert planning_prompt.startswith("BASE PLANNING")
-    assert forward_prompt.startswith("BASE FORWARD")
-    assert backward_prompt.startswith("BASE BACKWARD")
-    assert "## Writing Mode" in planning_prompt
-    assert "## Writing Mode" in forward_prompt
-    assert "## Writing Mode" in backward_prompt
+    injected = runner_with_injection._build_phase_prompt("sess", "forward")
+    assert "## Phase Briefing" in injected
+    assert "plan summary" in injected

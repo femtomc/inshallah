@@ -1,57 +1,33 @@
-# Phase Plan Grammar
+# Program Step Grammar
 
-Loopfarm uses a mode-agnostic phase-plan string to define loop structure.
-
-Use it via `--phase-plan` (legacy alias: `--loop`).
+`[program].steps` defines loop structure.
 
 ## Grammar
 
 ```ebnf
-phase_plan   := token ("," token)*
-token        := phase [repeat]
-phase        := alias
-repeat       := "*" integer | ":" integer | integer
-integer      := [1-9][0-9]*
+steps       := token ("," token)* | [token, ...]
+token       := phase ["*" integer]
+phase       := "planning" | "forward" | "research" | "curation" | "documentation" | "architecture" | "backward"
+integer     := [1-9][0-9]*
 ```
 
-Canonical repeat syntax is `*N` (`forward*5`). Legacy repeat forms
-(`forward5`, `forward:5`) are accepted for compatibility.
+## Rules
 
-## Aliases
-
-- `planning`: `plan`, `planning`
-- `forward`: `forward`, `fwd`
-- `research`: `research`, `investigate`, `discovery`
-- `curation`: `curation`, `curate`, `triage`
-- `documentation`: `documentation`, `docs`, `doc`
-- `architecture`: `architecture`, `arch`, `performance`, `perf`
-- `backward`: `backward`, `review`, `replan`, `replanning`
-
-## Validation Rules
-
-- `planning` may only appear at the beginning.
-- `planning` and `backward` cannot be repeated.
-- At least one loop phase must remain after optional leading `planning`.
-- `backward` is required for completion/termination checks.
+- `planning` may appear only as the first step.
+- `planning` cannot be repeated.
+- At least one non-planning phase is required.
+- `termination_phase` must exist in the non-planning loop steps.
 
 ## Examples
 
-Implementation mode:
+Implementation:
 
 ```text
 planning,forward*5,documentation,architecture,backward
 ```
 
-Research mode:
+Research:
 
 ```text
 planning,research*3,curation,backward
 ```
-
-Legacy-compatible examples:
-
-```text
-planning,forward5,documentation,architecture,backward
-plan,discovery:3,curate,replan
-```
-

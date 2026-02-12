@@ -43,10 +43,11 @@ class _GeminiTextFormatter(StreamFormatter):
 class GeminiBackend(StreamBackend):
     name: str = "gemini"
 
-    def _model(self, cfg: "LoopfarmConfig") -> str:
-        if cfg.model_override:
-            return cfg.model_override
-        return cfg.documentation_model or "gemini-3-pro-preview"
+    def _model(self, phase: str, cfg: "LoopfarmConfig") -> str:
+        explicit_model = cfg.phase_model(phase)
+        if explicit_model is None:
+            raise SystemExit(f"missing model for phase {phase!r}")
+        return explicit_model.model
 
     def build_argv(
         self,
@@ -63,7 +64,7 @@ class GeminiBackend(StreamBackend):
             "--output-format",
             "text",
             "--model",
-            self._model(cfg),
+            self._model(phase, cfg),
             "--prompt",
             prompt,
         ]

@@ -20,26 +20,10 @@ class CodexBackend(StreamBackend):
     name: str = "codex"
 
     def _model_for_phase(self, phase: str, cfg: "LoopfarmConfig") -> "CodexPhaseModel":
-        architecture_model = cfg.architecture_model or cfg.review_model
-        if cfg.model_override:
-            # Keep reasoning defaults even when overriding model.
-            if phase in {"planning", "research", "curation"}:
-                return type(cfg.plan_model)(cfg.model_override, cfg.plan_model.reasoning)
-            if phase in {"backward", "documentation"}:
-                return type(cfg.review_model)(cfg.model_override, cfg.review_model.reasoning)
-            if phase == "architecture":
-                return type(architecture_model)(
-                    cfg.model_override, architecture_model.reasoning
-                )
-            return type(cfg.code_model)(cfg.model_override, cfg.code_model.reasoning)
-
-        if phase in {"planning", "research", "curation"}:
-            return cfg.plan_model
-        if phase in {"backward", "documentation"}:
-            return cfg.review_model
-        if phase == "architecture":
-            return architecture_model
-        return cfg.code_model
+        model = cfg.phase_model(phase)
+        if model is None:
+            raise SystemExit(f"missing model for phase {phase!r}")
+        return model
 
     def build_argv(
         self,

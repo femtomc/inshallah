@@ -1,40 +1,24 @@
-# Implementation Mode State Machine
+# Implementation Program State Machine
 
-This document defines the implementation-mode phase contract and transition
-model used by loopfarm.
+Implementation is defined by the configured program, not hardcoded modes.
 
-## State Machine
+## Shape
 
 ```text
-planning_once -> (forward^N -> documentation -> architecture -> backward_decision)^K
+planning_once -> (forward^N -> documentation -> architecture -> backward)^K
 ```
 
-- `planning_once` is optional (`--skip-plan` disables it).
-- `forward^N` means forward can repeat within a loop cycle.
-- `backward_decision` is the sole termination gate.
+`planning_once` runs only when `planning` is the first step in `[program].steps`.
 
-## Termination Authority
+## Termination
 
-- Only `backward` is allowed to terminate a session.
-- A session completes only when backward writes `decision=COMPLETE` to the
-  status topic.
+- `termination_phase` in config is the only completion gate.
+- The runner completes only when that phase writes `decision=COMPLETE` to `loopfarm:status:<session>`.
 
-This is encoded in `phase_contract.py` via `termination_gate=True` for
-`backward` and checked in the runner through `is_termination_gate(phase)`.
+## Forward Report Flow
 
-## Phase I/O Contract
+When configured:
 
-| Phase | Consumes | Produces | `loopfarm issue` writes | `loopfarm forum` writes |
-| --- | --- | --- | --- | --- |
-| `planning` | prompt, repo_state | issue_plan | epic, leaf_issues | briefing |
-| `forward` | issue_plan, repo_state | code_changes, phase_summary | leaf_issues | briefing, forward_report |
-| `documentation` | forward_report, repo_state | doc_updates, phase_summary | documentation_issues | briefing |
-| `architecture` | forward_report, repo_state | architecture_findings | implementation_epic | architecture_summary |
-| `backward` | phase_summaries, forward_report, repo_state | decision, phase_summary | followup_issues | status, briefing |
-
-## Implementation Mapping
-
-- Contract definitions live in `loopfarm/src/loopfarm/phase_contract.py`.
-- Configured plan validation uses `build_state_machine(...)`.
-- Runtime termination checks use `is_termination_gate(...)`.
-
+- `[program].report_source_phase` captures source summaries.
+- `[program].report_target_phases` receives the generated report.
+- Injection into prompts is explicit per phase with `inject = ["forward_report"]`.

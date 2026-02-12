@@ -16,10 +16,8 @@ to satisfy this prompt.
    needed.
 5. Break the work into discrete, testable issues.
 6. File issues with `loopfarm issue new`, and set priorities/dependencies.
-7. In implementation mode, organize work under an implementation epic so forward,
-   documentation, architecture/performance, and backward phases can coordinate.
-8. If this session is writing-focused, structure issues for docs/prose work
-   (target files, outline, and sources).
+7. Organize work under an implementation epic so forward, documentation,
+   architecture/performance, and backward phases can coordinate.
 
 Do NOT implement anything in this phase. Only plan and file issues.
 

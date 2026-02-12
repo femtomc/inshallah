@@ -30,8 +30,8 @@ scope.
 4. Replan via `loopfarm issue` where needed (new issues, reprioritization, dependencies).
 5. Use `loopfarm forum`, `vector search tools`, or WebSearch for supporting context/research when needed.
 6. Do NOT modify code in this phase; file issues instead.
-7. Follow `loopfarm/prompts/INCREMENTAL.md` when doing incremental backward
-   review for implementation requests.
+7. Treat this as an incremental audit of the latest loop cycle and focus on
+   open risks before allowing termination.
 
 Ignore unrelated dirty state in the repository; other agents may be working in
 parallel.

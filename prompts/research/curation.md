@@ -16,7 +16,7 @@ USER PROMPT: **{{PROMPT}}**
 2. Curate and organize `loopfarm issue` tasks/dependencies for implementation readiness.
 3. Prioritize leaf issues, define acceptance criteria, and identify blockers.
 4. Record decisions, references, and open questions to `loopfarm forum`.
-5. Ensure issue graph is actionable for a later `--mode implementation` run.
+5. Ensure issue graph is actionable for a later implementation program run.
 
 Do NOT implement production code in this phase.
 

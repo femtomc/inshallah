@@ -88,9 +88,7 @@ class SessionStore:
     read_limit: int = 25
 
     def get_session_meta(self, session_id: str) -> SessionMeta | None:
-        return self._read_latest(
-            self._session_topic(session_id), SESSION_META_SCHEMA, allow_legacy=True
-        )
+        return self._read_latest(self._session_topic(session_id), SESSION_META_SCHEMA)
 
     def update_session_meta(
         self,
@@ -110,9 +108,7 @@ class SessionStore:
         return merged
 
     def get_control_state(self, session_id: str) -> ControlState | None:
-        return self._read_latest(
-            self._control_topic(session_id), CONTROL_STATE_SCHEMA, allow_legacy=True
-        )
+        return self._read_latest(self._control_topic(session_id), CONTROL_STATE_SCHEMA)
 
     def set_control_state(
         self,
@@ -147,9 +143,7 @@ class SessionStore:
         return payload
 
     def get_session_context(self, session_id: str) -> SessionContext | None:
-        return self._read_latest(
-            self._context_topic(session_id), SESSION_CONTEXT_SCHEMA, allow_legacy=True
-        )
+        return self._read_latest(self._context_topic(session_id), SESSION_CONTEXT_SCHEMA)
 
     def set_session_context(
         self,
@@ -170,9 +164,7 @@ class SessionStore:
         return payload
 
     def get_chat_state(self, session_id: str) -> ChatState | None:
-        return self._read_latest(
-            self._chat_topic(session_id), CHAT_STATE_SCHEMA, allow_legacy=True
-        )
+        return self._read_latest(self._chat_topic(session_id), CHAT_STATE_SCHEMA)
 
     def update_chat_state(
         self,
@@ -228,7 +220,7 @@ class SessionStore:
                 continue
             if not isinstance(payload, dict):
                 continue
-            data = self._unwrap(payload, PHASE_SUMMARY_SCHEMA, allow_legacy=False)
+            data = self._unwrap(payload, PHASE_SUMMARY_SCHEMA)
             if data is None:
                 continue
             created_at = _as_int(msg.get("created_at"))
@@ -294,8 +286,6 @@ class SessionStore:
         self,
         topic: str,
         schema: str,
-        *,
-        allow_legacy: bool,
     ) -> dict[str, Any] | None:
         messages = self.forum.read_json(topic, limit=self.read_limit)
         candidates: list[tuple[int | None, int | None, dict[str, Any]]] = []
@@ -309,7 +299,7 @@ class SessionStore:
                 continue
             if not isinstance(payload, dict):
                 continue
-            data = self._unwrap(payload, schema, allow_legacy=allow_legacy)
+            data = self._unwrap(payload, schema)
             if data is None:
                 continue
             created_at = _as_int(msg.get("created_at"))
@@ -329,18 +319,12 @@ class SessionStore:
         # Forum reads return newest-first, so the first valid candidate is newest.
         return candidates[0][2]
 
-    def _unwrap(
-        self, payload: dict[str, Any], schema: str, *, allow_legacy: bool
-    ) -> dict[str, Any] | None:
-        if "schema" in payload and "data" in payload:
-            if payload.get("schema") != schema:
-                return None
-            data = payload.get("data")
-            if isinstance(data, dict):
-                return data
+    def _unwrap(self, payload: dict[str, Any], schema: str) -> dict[str, Any] | None:
+        if payload.get("schema") != schema:
             return None
-        if allow_legacy:
-            return payload
+        data = payload.get("data")
+        if isinstance(data, dict):
+            return data
         return None
 
     @staticmethod

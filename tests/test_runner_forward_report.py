@@ -9,14 +9,17 @@ def _cfg(tmp_path: Path) -> LoopfarmConfig:
     model = CodexPhaseModel(model="test", reasoning="fast")
     return LoopfarmConfig(
         repo_root=tmp_path,
-        cli="codex",
-        model_override=None,
-        skip_plan=True,
         project="test",
         prompt="prompt",
-        code_model=model,
-        plan_model=model,
-        review_model=model,
+        loop_plan_once=False,
+        loop_steps=(("forward", 1), ("backward", 1)),
+        termination_phase="backward",
+        phase_models=(("forward", model), ("backward", model)),
+        phase_cli_overrides=(("forward", "codex"), ("backward", "codex")),
+        phase_prompt_overrides=(
+            ("forward", str(tmp_path / ".loopfarm" / "prompts" / "forward.md")),
+            ("backward", str(tmp_path / ".loopfarm" / "prompts" / "backward.md")),
+        ),
     )
 
 

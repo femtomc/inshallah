@@ -33,7 +33,10 @@ class ClaudeBackend(StreamBackend):
             "--verbose",
             "--include-partial-messages",
         ]
-        model = cfg.model_override or "claude-opus-4-6"
+        explicit_model = cfg.phase_model(phase)
+        if explicit_model is None:
+            raise SystemExit(f"missing model for phase {phase!r}")
+        model = explicit_model.model
         argv += ["--model", model]
         argv.append(prompt)
         return argv
