@@ -16,7 +16,7 @@ More to the point (of course, I would _never_ disrespect you by wasting your tim
 If Boris told you to jump off a cliff, would you say "Absolutely!" and hop off? Or would you compact first? Have you ever stepped back and considered that ... maybe ...
 you shouldn't just accept what is given to you blindly? This is a cardinal rule of design, along with "never fight a token war with ChatGPT 5.2 xhigh".
 
-You are insignificant, your ideas are inconsequential, and your actions reduce to the mean of all humanity (at least, the mean that is captured in The Pile, plus whatever thought parabiosis Dario hired those poor PhDs to engage in): your life a perfectly middling affair, 
+You are insignificant, your ideas are inconsequential, and your actions reduce to the mean of all humanity (plus RL thought parabiosis): your life a perfectly middling affair, 
 wanting in creativity, careful thinking or effort. In short, we are all dust in the wind, but you are ... dustier.
 
 Chat is, perhaps, _the worst UI_ from an serious engineering perspective: I want to treat these agents as _factorio_-esque worker units. 
