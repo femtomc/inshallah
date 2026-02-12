@@ -7,7 +7,7 @@ made by morons who have never studied AI seriously a day in their life, but thin
 they can make a successful business by writing an orchestrator and talking about AI.
 
 We used to make _things_, serious things, serious technology. Now, 
-the economy is propped up by conmen selling a dream to spiritless managers, deluded by the wandering mists of billion-dollar probability distributions.
+the economy is propped up by sophists selling a dream to spiritless managers, deluded by the wandering mists of billion-dollar probability distributions.
 
 Anyways, I wrote this by talking to Claude Code (and Codex ... and Gemini) and I'm sure it will make a successful business,
 as long as I talk about AI on Hacker News (Gary: shoot me an email, I'm willing to consider your incubator)
