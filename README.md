@@ -6,7 +6,10 @@ There are likely thousands of these out there, and thousands more coming,
 made by morons who have never studied AI seriously a day in their life, but think because they can talk to Claude Code
 they can make a successful business by writing an orchestrator and talking about AI.
 
-I wrote this by talking to Claude Code (and Codex ... and Gemini) and I'm sure it will make a successful business,
+We used to make _things_, serious things, serious technology. Now, 
+the economy is propped up by conmen selling a dream to spiritless managers, deluded by the wandering mists of billion-dollar probability distributions.
+
+Anyways, I wrote this by talking to Claude Code (and Codex ... and Gemini) and I'm sure it will make a successful business,
 as long as I talk about AI on Hacker News (Gary: shoot me an email, I'm willing to consider your incubator)
 
 More to the point (of course, I wouldn't disrespect you by wasting your time) ... this is for all the people who think that taking "chat with an agent" on your phone is a good UI model -- are you a fucking lemming? 
