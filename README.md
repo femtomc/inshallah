@@ -20,7 +20,7 @@ You are insignificant, your ideas are inconsequential, and your actions reduce t
 wanting in creativity, careful thinking or effort. In short, we are all dust in the wind, but you are ... dustier.
 
 Chat is, perhaps, _the worst UI_ from an serious engineering perspective: I want to treat these agents as _factorio_-esque worker units. 
-You are going to do one job, and then you're going to get torn down. Oh shit, the factory isn't working well? Maybe you think about your design and plans a little harder ... 
+You are going to do one job, and then you're going to get torn down. Oh shit, the factory isn't working well? Maybe you should _think_ (god please don't make me think) about your design and plans a little harder ... 
 do you even know what you're building ("build me a billion dollar SaaS, and MAKE SURE IT IS SECURE")
 
 Anyways, this code (`uv tool install --from git+https://github.com/femtomc/loopfarm loopfarm` btw) gives you _loops_, an issue tracker, and a forum for agent conversation -- all rolled into one. 
