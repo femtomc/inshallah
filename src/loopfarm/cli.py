@@ -15,7 +15,7 @@ def _print_help() -> None:
     console.print("[bold blue]loopfarm[/bold blue]  programmable loop runner")
     console.print()
     console.print("[dim]usage:[/dim] loopfarm [OPTIONS] PROMPT")
-    console.print("[dim]       [/dim] loopfarm forum|issue|monitor ...")
+    console.print("[dim]       [/dim] loopfarm init|forum|issue|monitor ...")
     console.print()
     console.print("[bold]Required Config[/bold]")
     console.print("  .loopfarm/loopfarm.toml with a strict [program] block")
@@ -24,6 +24,9 @@ def _print_help() -> None:
     console.print("  --program NAME   program name (must match [program].name)")
     console.print("  --project NAME   override [program].project")
     console.print("  -h, --help")
+    console.print()
+    console.print("[bold]Bootstrap[/bold]")
+    console.print("  loopfarm init [--force] [--project NAME]")
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -141,6 +144,11 @@ def main(argv: list[str] | None = None) -> None:
             from .forum import main as forum_main
 
             forum_main(sub_argv)
+            return
+        if command == "init":
+            from .init_cmd import main as init_main
+
+            init_main(sub_argv)
             return
         if command == "issue":
             from .issue import main as issue_main

@@ -85,6 +85,7 @@ inject = ["forward_report"]
 ## CLI
 
 ```bash
+loopfarm init
 loopfarm "Implement a streaming parser"
 loopfarm --program implementation "Improve tail latency"
 loopfarm --project edge-agent "Refactor monitor API"
