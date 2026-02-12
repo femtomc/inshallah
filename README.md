@@ -10,8 +10,8 @@ I wrote this by talking to Claude Code (and Codex ... and Gemini) and I'm sure i
 as long as I talk about AI on Hacker News (Gary: shoot me an email, I'm willing to consider your incubator)
 
 More to the point (of course, I wouldn't disrespect you by wasting your time) ... this is for all the people who think that taking "chat with an agent" on your phone is a good UI model -- are you a fucking lemming? 
-If Boris told you to jump off a cliff, would you say "Absolutely!" and hop off. Have you ever stepped back and considered that ... maybe ...
-you shouldn't just accept what is given to you blindly?
+If Boris told you to jump off a cliff, would you say "Absolutely!" and hop off? Or would you compact first? Have you ever stepped back and considered that ... maybe ...
+you shouldn't just accept what is given to you blindly? This is a cardinal rule of design, along with "never fight a token war with ChatGPT 5.2 xhigh".
 
 You are insignificant, your ideas are inconsequential, and your actions reduce to the mean of all humanity: your life a perfectly middling affair, 
 wanting in creativity, careful thinking or effort. In short, we are all dust in the wind, but you are ... dustier.
