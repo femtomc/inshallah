@@ -12,7 +12,7 @@ the economy is propped up by conmen selling a dream to spiritless managers, delu
 Anyways, I wrote this by talking to Claude Code (and Codex ... and Gemini) and I'm sure it will make a successful business,
 as long as I talk about AI on Hacker News (Gary: shoot me an email, I'm willing to consider your incubator)
 
-More to the point (of course, I wouldn't disrespect you by wasting your time) ... this is for all the people who think that taking "chat with an agent" on your phone is a good UI model -- are you a fucking lemming? 
+More to the point (of course, I wouldn't disrespect you by wasting your time) ... this is for all the people who think that putting "chat with an agent" everywhere is a good UI model -- are you a fucking lemming? 
 If Boris told you to jump off a cliff, would you say "Absolutely!" and hop off? Or would you compact first? Have you ever stepped back and considered that ... maybe ...
 you shouldn't just accept what is given to you blindly? This is a cardinal rule of design, along with "never fight a token war with ChatGPT 5.2 xhigh".
 
