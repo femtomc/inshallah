@@ -72,16 +72,39 @@ class _BaseFormatter:
         self.console = console or Console()
         self.interactive = _is_interactive(self.console)
         self._summary_parts: list[str] = []
+        self._pending_tool: tuple[str, str] | None = None  # (name, detail)
 
-    def _tool(self, name: str, detail: str = "") -> None:
-        """Print a single-line tool invocation."""
-        line = f"  {name}"
+    def _tool(self, name: str, detail: str = "", *, ok: bool = True) -> None:
+        """Print a single-line tool invocation with success/failure indicator."""
+        prefix = "\u2713" if ok else "\u2717"
+        line = f"  {prefix} {name}"
         if detail:
             line += f" {detail}"
+        style = "dim" if ok else "red"
         if self.interactive:
-            self.console.print(Text(line, style="dim"))
+            self.console.print(Text(line, style=style))
         else:
             self.console.print(line, markup=False)
+
+    def _buffer_tool(self, name: str, detail: str = "") -> None:
+        """Buffer a tool call; printed when result arrives."""
+        self._flush_pending()
+        self._pending_tool = (name, detail)
+
+    def _resolve_tool(self, *, ok: bool = True) -> None:
+        """Print the buffered tool call with its outcome."""
+        if self._pending_tool is None:
+            return
+        name, detail = self._pending_tool
+        self._pending_tool = None
+        self._tool(name, detail, ok=ok)
+
+    def _flush_pending(self) -> None:
+        """Flush any buffered tool as success (safety net)."""
+        if self._pending_tool is not None:
+            name, detail = self._pending_tool
+            self._pending_tool = None
+            self._tool(name, detail, ok=True)
 
     def _error(self, msg: str) -> None:
         if self.interactive:
@@ -159,12 +182,17 @@ class ClaudeFormatter(_BaseFormatter):
                     if isinstance(v, str) and v:
                         detail = _truncate(v, 60)
                         break
-            self._tool(name, detail)
+            self._buffer_tool(name, detail)
+
+        elif etype == "tool_result":
+            is_error = event.get("is_error", False)
+            self._resolve_tool(ok=not is_error)
 
         elif etype == "error":
             self._error(event.get("error", str(event)))
 
     def finish(self) -> None:
+        self._flush_pending()
         self._print_summary()
 
 
@@ -188,10 +216,13 @@ class CodexFormatter(_BaseFormatter):
 
         if etype == "item.started" and item_type == "command_execution":
             cmd = _strip_shell(item.get("command", ""))
-            self._tool("bash", _truncate(cmd, 120))
+            self._buffer_tool("bash", _truncate(cmd, 120))
 
         elif etype == "item.completed":
-            if item_type in ("message", "agent_message"):
+            if item_type == "command_execution":
+                exit_code = item.get("exit_code")
+                self._resolve_tool(ok=(exit_code == 0))
+            elif item_type in ("message", "agent_message"):
                 content = _message_text(item)
                 if content:
                     self._accumulate(content)
@@ -200,6 +231,7 @@ class CodexFormatter(_BaseFormatter):
             self._error(event.get("error", str(event)))
 
     def finish(self) -> None:
+        self._flush_pending()
         self._print_summary()
 
 
@@ -241,7 +273,8 @@ class OpenCodeFormatter(_BaseFormatter):
                     if isinstance(value, str) and value:
                         detail = _truncate(value, 60)
                         break
-            self._tool(tool, detail)
+            status = state.get("status", "") if isinstance(state, dict) else ""
+            self._tool(tool, detail, ok=(status != "error"))
 
         elif etype == "text":
             part = event.get("part", {})
@@ -317,7 +350,12 @@ class GeminiFormatter(_BaseFormatter):
             if not isinstance(tool_name, str):
                 tool_name = "?"
             detail = self._tool_detail(tool_name, event.get("parameters", {}))
-            self._tool(tool_name, detail)
+            self._buffer_tool(tool_name, detail)
+
+        elif etype == "tool_result":
+            status = event.get("status")
+            status_text = status.lower() if isinstance(status, str) else ""
+            self._resolve_tool(ok=(status_text in ("success", "ok", "")))
 
         elif etype == "message":
             if event.get("role") == "assistant":
@@ -351,6 +389,7 @@ class GeminiFormatter(_BaseFormatter):
             self._error(msg)
 
     def finish(self) -> None:
+        self._flush_pending()
         self._print_summary()
 
 
@@ -401,7 +440,11 @@ class PiFormatter(_BaseFormatter):
             if not isinstance(tool_name, str):
                 tool_name = "?"
             detail = self._tool_detail(tool_name, event.get("args", {}))
-            self._tool(tool_name, detail)
+            self._buffer_tool(tool_name, detail)
+
+        elif etype == "tool_execution_end":
+            is_error = bool(event.get("isError"))
+            self._resolve_tool(ok=not is_error)
 
         elif etype == "message_update":
             assistant_event = event.get("assistantMessageEvent", {})
@@ -436,6 +479,7 @@ class PiFormatter(_BaseFormatter):
             self._error(event.get("error", str(event)))
 
     def finish(self) -> None:
+        self._flush_pending()
         self._print_summary()
 
 

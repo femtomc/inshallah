@@ -27,32 +27,10 @@ def _emit(
     formatter.process_line(json.dumps(event))
 
 
-def test_codex_tool_call_single_line() -> None:
-    console, out = _console(force_terminal=True)
-    fmt = CodexFormatter(console)
-
-    _emit(
-        fmt,
-        {
-            "type": "item.started",
-            "item": {
-                "id": "item_1",
-                "type": "command_execution",
-                "command": "/usr/bin/zsh -lc 'echo hi'",
-                "aggregated_output": "",
-                "exit_code": None,
-                "status": "in_progress",
-            },
-        },
-    )
-
-    rendered = out.getvalue()
-    assert "bash echo hi" in rendered
-    # Single line per tool call
-    assert rendered.strip().count("\n") == 0
+# -- Codex --
 
 
-def test_codex_noninteractive_no_rich_artifacts() -> None:
+def test_codex_success_shows_checkmark() -> None:
     console, out = _console(force_terminal=False)
     fmt = CodexFormatter(console)
 
@@ -70,9 +48,137 @@ def test_codex_noninteractive_no_rich_artifacts() -> None:
             },
         },
     )
+    _emit(
+        fmt,
+        {
+            "type": "item.completed",
+            "item": {
+                "id": "item_1",
+                "type": "command_execution",
+                "command": "/usr/bin/zsh -lc 'echo hi'",
+                "aggregated_output": "hi\n",
+                "exit_code": 0,
+                "status": "completed",
+            },
+        },
+    )
 
     rendered = out.getvalue()
+    assert "\u2713" in rendered
     assert "bash echo hi" in rendered
+    assert rendered.strip().count("\n") == 0
+
+
+def test_codex_failure_shows_cross() -> None:
+    console, out = _console(force_terminal=False)
+    fmt = CodexFormatter(console)
+
+    _emit(
+        fmt,
+        {
+            "type": "item.started",
+            "item": {
+                "id": "item_1",
+                "type": "command_execution",
+                "command": "/usr/bin/zsh -lc 'false'",
+                "aggregated_output": "",
+                "exit_code": None,
+                "status": "in_progress",
+            },
+        },
+    )
+    _emit(
+        fmt,
+        {
+            "type": "item.completed",
+            "item": {
+                "id": "item_1",
+                "type": "command_execution",
+                "command": "/usr/bin/zsh -lc 'false'",
+                "aggregated_output": "",
+                "exit_code": 1,
+                "status": "completed",
+            },
+        },
+    )
+
+    rendered = out.getvalue()
+    assert "\u2717" in rendered
+    assert "bash false" in rendered
+
+
+def test_codex_buffered_until_result() -> None:
+    """Tool call is not printed until the result event arrives."""
+    console, out = _console(force_terminal=False)
+    fmt = CodexFormatter(console)
+
+    _emit(
+        fmt,
+        {
+            "type": "item.started",
+            "item": {
+                "id": "item_1",
+                "type": "command_execution",
+                "command": "/usr/bin/zsh -lc 'echo hi'",
+                "aggregated_output": "",
+                "exit_code": None,
+                "status": "in_progress",
+            },
+        },
+    )
+    assert out.getvalue().strip() == ""
+
+    _emit(
+        fmt,
+        {
+            "type": "item.completed",
+            "item": {
+                "id": "item_1",
+                "type": "command_execution",
+                "command": "/usr/bin/zsh -lc 'echo hi'",
+                "aggregated_output": "hi\n",
+                "exit_code": 0,
+                "status": "completed",
+            },
+        },
+    )
+    assert "bash echo hi" in out.getvalue()
+
+
+def test_codex_no_rich_artifacts() -> None:
+    console, out = _console(force_terminal=False)
+    fmt = CodexFormatter(console)
+
+    _emit(
+        fmt,
+        {
+            "type": "item.started",
+            "item": {
+                "id": "item_1",
+                "type": "command_execution",
+                "command": "/usr/bin/zsh -lc 'echo hi'",
+                "aggregated_output": "",
+                "exit_code": None,
+                "status": "in_progress",
+            },
+        },
+    )
+    _emit(
+        fmt,
+        {
+            "type": "item.completed",
+            "item": {
+                "id": "item_1",
+                "type": "command_execution",
+                "command": "/usr/bin/zsh -lc 'echo hi'",
+                "aggregated_output": "hi\n",
+                "exit_code": 0,
+                "status": "completed",
+            },
+        },
+    )
+
+    rendered = out.getvalue()
     assert "\x1b[" not in rendered
     assert not re.search(r"[╭╮╰╯│─]", rendered)
 
@@ -116,6 +222,61 @@ def test_codex_reasoning_suppressed() -> None:
 
     rendered = out.getvalue()
     assert "Planning" not in rendered
+
+
+# -- OpenCode --
+
+
+def test_opencode_success_shows_checkmark() -> None:
+    console, out = _console(force_terminal=False)
+    fmt = OpenCodeFormatter(console)
+
+    _emit(
+        fmt,
+        {
+            "type": "tool_use",
+            "part": {
+                "id": "part_1",
+                "type": "tool",
+                "tool": "bash",
+                "state": {
+                    "status": "completed",
+                    "input": {"command": "/usr/bin/zsh -lc 'echo hi'"},
+                    "output": "hi\n",
+                },
+            },
+        },
+    )
+
+    rendered = out.getvalue()
+    assert "\u2713" in rendered
+    assert "bash echo hi" in rendered
+
+
+def test_opencode_failure_shows_cross() -> None:
+    console, out = _console(force_terminal=False)
+    fmt = OpenCodeFormatter(console)
+
+    _emit(
+        fmt,
+        {
+            "type": "tool_use",
+            "part": {
+                "id": "part_1",
+                "type": "tool",
+                "tool": "bash",
+                "state": {
+                    "status": "error",
+                    "input": {"command": "/usr/bin/zsh -lc 'false'"},
+                    "output": "",
+                },
+            },
+        },
+    )
+
+    rendered = out.getvalue()
+    assert "\u2717" in rendered
+    assert "bash false" in rendered
 
 
 def test_opencode_tool_and_summary() -> None:
@@ -189,6 +350,67 @@ def test_opencode_reasoning_suppressed() -> None:
     assert "Planning" not in rendered
 
 
+# -- Pi --
+
+
+def test_pi_success_shows_checkmark() -> None:
+    console, out = _console(force_terminal=False)
+    fmt = PiFormatter(console)
+
+    _emit(
+        fmt,
+        {
+            "type": "tool_execution_start",
+            "toolCallId": "tool_1",
+            "toolName": "bash",
+            "args": {"command": "/usr/bin/zsh -lc 'echo hi'"},
+        },
+    )
+    _emit(
+        fmt,
+        {
+            "type": "tool_execution_end",
+            "toolCallId": "tool_1",
+            "toolName": "bash",
+            "result": {"content": [{"type": "text", "text": "hi"}]},
+            "isError": False,
+        },
+    )
+
+    rendered = out.getvalue()
+    assert "\u2713" in rendered
+    assert "bash echo hi" in rendered
+
+
+def test_pi_failure_shows_cross() -> None:
+    console, out = _console(force_terminal=False)
+    fmt = PiFormatter(console)
+
+    _emit(
+        fmt,
+        {
+            "type": "tool_execution_start",
+            "toolCallId": "tool_1",
+            "toolName": "bash",
+            "args": {"command": "/usr/bin/zsh -lc 'false'"},
+        },
+    )
+    _emit(
+        fmt,
+        {
+            "type": "tool_execution_end",
+            "toolCallId": "tool_1",
+            "toolName": "bash",
+            "result": {"content": [{"type": "text", "text": "error"}]},
+            "isError": True,
+        },
+    )
+
+    rendered = out.getvalue()
+    assert "\u2717" in rendered
+    assert "bash false" in rendered
+
+
 def test_pi_tool_and_summary() -> None:
     console, out = _console(force_terminal=False)
     fmt = PiFormatter(console)
@@ -200,6 +422,16 @@ def test_pi_tool_and_summary() -> None:
             "toolCallId": "tool_1",
             "toolName": "bash",
             "args": {"command": "/usr/bin/zsh -lc 'echo hi'"},
+        },
+    )
+    _emit(
+        fmt,
+        {
+            "type": "tool_execution_end",
+            "toolCallId": "tool_1",
+            "toolName": "bash",
+            "result": {"content": [{"type": "text", "text": "hi"}]},
+            "isError": False,
         },
     )
     _emit(
@@ -254,23 +486,65 @@ def test_pi_thinking_suppressed() -> None:
     assert "Planning" not in rendered
 
 
-def test_pi_tool_result_suppressed() -> None:
+# -- Gemini --
+
+
+def test_gemini_success_shows_checkmark() -> None:
     console, out = _console(force_terminal=False)
-    fmt = PiFormatter(console)
+    fmt = GeminiFormatter(console)
 
     _emit(
         fmt,
         {
-            "type": "tool_execution_end",
-            "toolCallId": "tool_1",
-            "toolName": "bash",
-            "result": {"content": [{"type": "text", "text": "hi"}]},
-            "isError": False,
+            "type": "tool_use",
+            "tool_name": "run_shell_command",
+            "tool_id": "tool_1",
+            "parameters": {"command": "/usr/bin/zsh -lc 'echo hi'"},
+        },
+    )
+    _emit(
+        fmt,
+        {
+            "type": "tool_result",
+            "tool_name": "run_shell_command",
+            "tool_id": "tool_1",
+            "status": "success",
+            "output": "hi\n",
         },
     )
 
     rendered = out.getvalue()
-    assert rendered.strip() == ""
+    assert "\u2713" in rendered
+    assert "run_shell_command echo hi" in rendered
+
+
+def test_gemini_failure_shows_cross() -> None:
+    console, out = _console(force_terminal=False)
+    fmt = GeminiFormatter(console)
+
+    _emit(
+        fmt,
+        {
+            "type": "tool_use",
+            "tool_name": "run_shell_command",
+            "tool_id": "tool_1",
+            "parameters": {"command": "/usr/bin/zsh -lc 'false'"},
+        },
+    )
+    _emit(
+        fmt,
+        {
+            "type": "tool_result",
+            "tool_name": "run_shell_command",
+            "tool_id": "tool_1",
+            "status": "error",
+            "output": "",
+        },
+    )
+
+    rendered = out.getvalue()
+    assert "\u2717" in rendered
+    assert "run_shell_command false" in rendered
 
 
 def test_gemini_tool_and_summary() -> None:
@@ -284,6 +558,16 @@ def test_gemini_tool_and_summary() -> None:
             "tool_name": "run_shell_command",
             "tool_id": "tool_1",
             "parameters": {"command": "/usr/bin/zsh -lc 'echo hi'"},
+        },
+    )
+    _emit(
+        fmt,
+        {
+            "type": "tool_result",
+            "tool_name": "run_shell_command",
+            "tool_id": "tool_1",
+            "status": "success",
+            "output": "hi\n",
         },
     )
     _emit(
@@ -324,25 +608,6 @@ def test_gemini_init_suppressed() -> None:
     assert rendered.strip() == ""
 
 
-def test_gemini_tool_result_suppressed() -> None:
-    console, out = _console(force_terminal=False)
-    fmt = GeminiFormatter(console)
-
-    _emit(
-        fmt,
-        {
-            "type": "tool_result",
-            "tool_name": "run_shell_command",
-            "tool_id": "tool_1",
-            "status": "success",
-            "output": "hi\n",
-        },
-    )
-
-    rendered = out.getvalue()
-    assert rendered.strip() == ""
-
-
 def test_gemini_renders_error() -> None:
     console, out = _console(force_terminal=False)
     fmt = GeminiFormatter(console)
@@ -359,7 +624,66 @@ def test_gemini_renders_error() -> None:
     assert "error: rate limited" in rendered
 
 
-def test_claude_tool_call_single_line() -> None:
+# -- Claude --
+
+
+def test_claude_success_shows_checkmark() -> None:
+    console, out = _console(force_terminal=False)
+    fmt = ClaudeFormatter(console)
+
+    _emit(
+        fmt,
+        {
+            "type": "tool_use",
+            "tool": "Read",
+            "input": {"file_path": "src/main.py"},
+        },
+    )
+    _emit(fmt, {"type": "tool_result", "is_error": False})
+
+    rendered = out.getvalue()
+    assert "\u2713" in rendered
+    assert "Read src/main.py" in rendered
+
+
+def test_claude_failure_shows_cross() -> None:
+    console, out = _console(force_terminal=False)
+    fmt = ClaudeFormatter(console)
+
+    _emit(
+        fmt,
+        {
+            "type": "tool_use",
+            "tool": "Bash",
+            "input": {"command": "false"},
+        },
+    )
+    _emit(fmt, {"type": "tool_result", "is_error": True})
+
+    rendered = out.getvalue()
+    assert "\u2717" in rendered
+    assert "Bash false" in rendered
+
+
+def test_claude_tool_buffered_until_result() -> None:
+    console, out = _console(force_terminal=False)
+    fmt = ClaudeFormatter(console)
+
+    _emit(
+        fmt,
+        {
+            "type": "tool_use",
+            "tool": "Bash",
+            "input": {"command": "ls -la"},
+        },
+    )
+    assert out.getvalue().strip() == ""
+
+    _emit(fmt, {"type": "tool_result", "is_error": False})
+    assert "Bash ls -la" in out.getvalue()
+
+
+def test_claude_tool_single_line() -> None:
     console, out = _console(force_terminal=True)
     fmt = ClaudeFormatter(console)
 
@@ -371,6 +695,7 @@ def test_claude_tool_call_single_line() -> None:
             "input": {"command": "ls -la"},
         },
     )
+    _emit(fmt, {"type": "tool_result", "is_error": False})
 
     rendered = out.getvalue()
     assert "Bash ls -la" in rendered
@@ -391,7 +716,7 @@ def test_claude_summary_on_finish() -> None:
     assert "0.9s" in rendered
 
 
-def test_claude_noninteractive_no_rich_artifacts() -> None:
+def test_claude_no_rich_artifacts() -> None:
     console, out = _console(force_terminal=False)
     fmt = ClaudeFormatter(console)
 
@@ -403,6 +728,7 @@ def test_claude_noninteractive_no_rich_artifacts() -> None:
             "input": {"file_path": "src/loopfarm/fmt.py"},
         },
     )
+    _emit(fmt, {"type": "tool_result", "is_error": False})
     _emit(fmt, {"type": "error", "error": "boom"})
 
     rendered = out.getvalue()
@@ -410,3 +736,24 @@ def test_claude_noninteractive_no_rich_artifacts() -> None:
     assert "error: boom" in rendered
     assert "\x1b[" not in rendered
     assert not re.search(r"[╭╮╰╯│─]", rendered)
+
+
+def test_claude_pending_tool_flushed_on_finish() -> None:
+    """If no tool_result arrives, finish() flushes as success."""
+    console, out = _console(force_terminal=False)
+    fmt = ClaudeFormatter(console)
+
+    _emit(
+        fmt,
+        {
+            "type": "tool_use",
+            "tool": "Read",
+            "input": {"file_path": "src/main.py"},
+        },
+    )
+    assert out.getvalue().strip() == ""
+
+    fmt.finish()
+    rendered = out.getvalue()
+    assert "\u2713" in rendered
+    assert "Read src/main.py" in rendered
