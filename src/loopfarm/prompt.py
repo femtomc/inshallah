@@ -55,6 +55,31 @@ def build_role_catalog(repo_root: Path) -> str:
     return "\n\n".join(sections)
 
 
+def list_roles_json(repo_root: Path) -> list[dict]:
+    """Return structured role data from .loopfarm/roles/*.md."""
+    roles_dir = repo_root / ".loopfarm" / "roles"
+    if not roles_dir.is_dir():
+        return []
+    result: list[dict] = []
+    for path in sorted(roles_dir.glob("*.md")):
+        text = path.read_text()
+        meta, body = _split_frontmatter(text)
+        desc = ""
+        for line in body.splitlines():
+            stripped = line.strip()
+            if stripped:
+                desc = stripped
+                break
+        result.append({
+            "name": path.stem,
+            "cli": meta.get("cli", ""),
+            "model": meta.get("model", ""),
+            "reasoning": meta.get("reasoning", ""),
+            "description": desc,
+        })
+    return result
+
+
 def render(path: str | Path, issue: dict, *, repo_root: Path | None = None) -> str:
     """Render a prompt template with issue data substituted."""
     text = Path(path).read_text()

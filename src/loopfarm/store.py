@@ -175,6 +175,24 @@ class IssueStore:
             issue["updated_at"] = _now()
             self._save(rows)
 
+    def remove_dep(self, src_id: str, dep_type: str, dst_id: str) -> bool:
+        """Remove one dependency edge. Returns True if an edge was removed."""
+        rows = self._load()
+        issue = self._find(rows, src_id)
+        if issue is None:
+            raise KeyError(src_id)
+        before = len(issue.get("deps", []))
+        issue["deps"] = [
+            d
+            for d in issue.get("deps", [])
+            if not (d.get("type") == dep_type and d.get("target") == dst_id)
+        ]
+        changed = len(issue["deps"]) != before
+        if changed:
+            issue["updated_at"] = _now()
+            self._save(rows)
+        return changed
+
     def children(self, parent_id: str) -> list[dict]:
         """Return issues that have a parent dep pointing to parent_id."""
         rows = self._load()
@@ -330,3 +348,25 @@ class ForumStore:
         rows = _read_jsonl(self.path)
         matching = [r for r in rows if r["topic"] == topic]
         return matching[-limit:]
+
+    def topics(self, prefix: str | None = None) -> list[dict]:
+        """Return topic metadata sorted by most-recent activity."""
+        rows = _read_jsonl(self.path)
+        by_topic: dict[str, dict] = {}
+        for row in rows:
+            topic = row.get("topic")
+            if not topic:
+                continue
+            if prefix and not topic.startswith(prefix):
+                continue
+            entry = by_topic.setdefault(
+                topic,
+                {"topic": topic, "messages": 0, "last_at": 0},
+            )
+            entry["messages"] += 1
+            entry["last_at"] = max(entry["last_at"], int(row.get("created_at", 0)))
+        return sorted(
+            by_topic.values(),
+            key=lambda item: (item["last_at"], item["topic"]),
+            reverse=True,
+        )
