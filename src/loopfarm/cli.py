@@ -187,7 +187,7 @@ def cmd_replay(argv: list[str], console: Console) -> int:
 
     if not argv or argv[0] in ("-h", "--help"):
         console.print("[bold]loopfarm replay[/bold] - replay a logged run\n")
-        console.print("  loopfarm replay [dim]<issue-id|path>[/dim] [dim][--backend codex|claude][/dim]\n")
+        console.print("  loopfarm replay [dim]<issue-id|path>[/dim] [dim][--backend codex|claude|opencode|pi|gemini][/dim]\n")
         if logs_dir.exists():
             logs = sorted(logs_dir.glob("*.jsonl"), key=lambda p: p.stat().st_mtime, reverse=True)
             if logs:

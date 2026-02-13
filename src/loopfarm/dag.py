@@ -123,6 +123,13 @@ class DagRunner:
                 if issue.get("body"):
                     rendered += "\n\n" + issue["body"]
 
+            # 5b. Inject DAG context so the agent knows its assignment
+            rendered += (
+                f"\n\n## Loopfarm Context\n"
+                f"Root: {root_id}\n"
+                f"Assigned issue: {issue_id}\n"
+            )
+
             # 6. Run backend
             self.console.print(
                 f"  [dim]{cli} model={model} reasoning={reasoning}[/dim]"

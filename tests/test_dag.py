@@ -79,6 +79,84 @@ class TestThreeTierResolution:
             assert call_args[0][1] == "gpt-5.3"
             assert call_args[0][2] == "xhigh"
 
+    def test_orchestrator_can_select_opencode(self, tmp_path: Path) -> None:
+        """Orchestrator frontmatter can target OpenCode backend."""
+        store, forum = _setup_stores(tmp_path)
+        _write_orchestrator(
+            tmp_path,
+            "cli: opencode\nmodel: openai/gpt-5\nreasoning: high\n",
+            "{{PROMPT}}\n",
+        )
+        issue = store.create("test task", tags=["node:agent", "node:root"])
+
+        runner = DagRunner(store, forum, tmp_path)
+
+        with patch("loopfarm.dag.get_backend") as mock_backend, \
+             patch("loopfarm.dag.get_formatter") as mock_formatter:
+            mock_proc = MagicMock()
+            mock_proc.run.return_value = 0
+            mock_backend.return_value = mock_proc
+            mock_formatter.return_value = MagicMock()
+
+            runner.run(issue["id"], max_steps=1)
+
+            mock_backend.assert_called_with("opencode")
+            call_args = mock_proc.run.call_args
+            assert call_args[0][1] == "openai/gpt-5"
+            assert call_args[0][2] == "high"
+
+    def test_orchestrator_can_select_pi(self, tmp_path: Path) -> None:
+        """Orchestrator frontmatter can target pi backend."""
+        store, forum = _setup_stores(tmp_path)
+        _write_orchestrator(
+            tmp_path,
+            "cli: pi\nmodel: openai/gpt-5\nreasoning: high\n",
+            "{{PROMPT}}\n",
+        )
+        issue = store.create("test task", tags=["node:agent", "node:root"])
+
+        runner = DagRunner(store, forum, tmp_path)
+
+        with patch("loopfarm.dag.get_backend") as mock_backend, \
+             patch("loopfarm.dag.get_formatter") as mock_formatter:
+            mock_proc = MagicMock()
+            mock_proc.run.return_value = 0
+            mock_backend.return_value = mock_proc
+            mock_formatter.return_value = MagicMock()
+
+            runner.run(issue["id"], max_steps=1)
+
+            mock_backend.assert_called_with("pi")
+            call_args = mock_proc.run.call_args
+            assert call_args[0][1] == "openai/gpt-5"
+            assert call_args[0][2] == "high"
+
+    def test_orchestrator_can_select_gemini(self, tmp_path: Path) -> None:
+        """Orchestrator frontmatter can target Gemini backend."""
+        store, forum = _setup_stores(tmp_path)
+        _write_orchestrator(
+            tmp_path,
+            "cli: gemini\nmodel: gemini-2.5-pro\nreasoning: high\n",
+            "{{PROMPT}}\n",
+        )
+        issue = store.create("test task", tags=["node:agent", "node:root"])
+
+        runner = DagRunner(store, forum, tmp_path)
+
+        with patch("loopfarm.dag.get_backend") as mock_backend, \
+             patch("loopfarm.dag.get_formatter") as mock_formatter:
+            mock_proc = MagicMock()
+            mock_proc.run.return_value = 0
+            mock_backend.return_value = mock_proc
+            mock_formatter.return_value = MagicMock()
+
+            runner.run(issue["id"], max_steps=1)
+
+            mock_backend.assert_called_with("gemini")
+            call_args = mock_proc.run.call_args
+            assert call_args[0][1] == "gemini-2.5-pro"
+            assert call_args[0][2] == "high"
+
     def test_role_overrides_orchestrator(self, tmp_path: Path) -> None:
         """Role frontmatter overrides orchestrator defaults."""
         store, forum = _setup_stores(tmp_path)
