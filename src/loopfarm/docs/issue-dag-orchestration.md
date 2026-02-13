@@ -43,7 +43,6 @@ Topic conventions:
 Required tags (minimal set used by the orchestrator):
 
 - `node:agent`: marks executable/plannable nodes.
-- `node:control` plus exactly one `cf:*` tag: marks control-flow aggregators.
 
 Required edges (minimal set used for DAG semantics):
 
@@ -68,26 +67,22 @@ First-class commands (stable UX contract):
 - `loopfarm forum post|read|search`
 - `loopfarm issue new|list|ready|show|comment|status|close|reopen`
 - `loopfarm issue dep add` and `loopfarm issue tag add|remove`
-- `loopfarm issue orchestrate-run --root <id>` (deterministic select->execute loop)
+- `loopfarm issue orchestrate-run --root <id>` (deterministic select->execute->validate loop)
 - `loopfarm sessions list|show` (and `loopfarm history` alias)
 
 Internal/advanced commands (debugging/ops; subject to change):
 
 - `loopfarm roles` (explicitly internal)
 - `loopfarm issue orchestrate` (selection-only; emits `node.execute`)
-- `loopfarm issue reconcile` (control-flow maintenance)
 - `loopfarm issue validate-dag` (structural invariants)
 - `loopfarm issue delete` (destructive; requires `--yes`)
 
 ## Canonical Tag Taxonomy
 
-### Node and Control-Flow Tags
+### Node Tags
 
 - `node:agent`: executable/plannable issue node.
-- `node:control`: control-flow aggregator node.
-- `cf:sequence`: control node succeeds only if all children succeed.
-- `cf:fallback`: control node succeeds if any child succeeds.
-- `cf:parallel`: control node succeeds by majority vote of child outcomes.
+- `node:control` and `cf:*` tags are unsupported.
 
 ### Routing Tags
 
@@ -154,7 +149,7 @@ def orchestrate(root_id):
 
         spec = parse_execution_spec(leaf.execution_spec)
         run_spec(spec, issue=leaf)
-        reconcile_ancestors(leaf)
+        validate_subtree(root_id)
 ```
 
 ## Claim and Resume Semantics (MVP)
@@ -177,7 +172,7 @@ For `--root <id>` orchestration runs:
 - `outcome=expanded` on the root is explicitly non-final.
 - A root marked `expanded` is valid only while it still has active descendants.
 
-The subtree validator (`loopfarm issue reconcile <root> --root --json`) reports:
+The subtree validator (emitted in each `orchestrate-run` step payload) reports:
 
 - `termination`
 - `orphaned_expanded_nodes`
@@ -186,7 +181,7 @@ The subtree validator (`loopfarm issue reconcile <root> --root --json`) reports:
 The structural DAG validator (`loopfarm issue validate-dag --root <id>`) reports:
 
 - parent-edge cycles under `--root`
-- node typing violations (`node:control`/`cf:*` and `node:agent`/`cf:*`)
+- unsupported node tags (`node:control`/`cf:*`)
 - terminal `node:*` issues missing an outcome
 - invalid `blocks` wiring
 - orphaned expanded nodes
@@ -201,7 +196,7 @@ loopfarm issue validate-dag --root <id> --json
 ```
 
 - `orchestrate`: selection-only routing + `node.execute` payload emission.
-- `orchestrate-run`: deterministic execution loop with post-step maintenance.
+- `orchestrate-run`: deterministic execution loop with post-step validation only.
 
 Stable stop reasons:
 
@@ -224,7 +219,6 @@ Canonical kinds:
 - `node.expand`
 - `node.execute`
 - `node.result`
-- `node.reconcile`
 
 Required fields:
 
@@ -233,14 +227,11 @@ Required fields:
 - `node.expand`: `id`, `root`, `team`, `role`, `program`, `control`, `children`
 - `node.execute`: `id`, `team`, `role`, `program`, `mode`, `claim_timestamp`, `claim_timestamp_iso`
 - `node.result`: `id`, `root`, `outcome`
-- `node.reconcile`: `id`, `root`, `control_flow`, `outcome`
 
 Optional provenance fields:
 
 - `issue_refs`: non-empty list of related issue IDs
 - `evidence`: non-empty list of evidence entries
-
-`node.replan` is deprecated and should be migrated to `node.reconcile`.
 
 ## MVP Non-Goals
 

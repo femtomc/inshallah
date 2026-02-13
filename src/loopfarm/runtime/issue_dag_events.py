@@ -9,7 +9,6 @@ NODE_MEMORY = "node.memory"
 NODE_EXPAND = "node.expand"
 NODE_EXECUTE = "node.execute"
 NODE_RESULT = "node.result"
-NODE_RECONCILE = "node.reconcile"
 
 ISSUE_DAG_EVENT_KINDS = frozenset(
     {
@@ -18,7 +17,6 @@ ISSUE_DAG_EVENT_KINDS = frozenset(
         NODE_EXPAND,
         NODE_EXECUTE,
         NODE_RESULT,
-        NODE_RECONCILE,
     }
 )
 
@@ -36,7 +34,6 @@ _REQUIRED_FIELDS: dict[str, tuple[str, ...]] = {
         "claim_timestamp_iso",
     ),
     NODE_RESULT: ("id", "root", "outcome"),
-    NODE_RECONCILE: ("id", "root", "control_flow", "outcome"),
 }
 
 _EXECUTION_MODES = {"claim", "resume"}
@@ -267,25 +264,6 @@ def build_node_result_event(
         "kind": NODE_RESULT,
         "id": _require_text(issue_id, "issue_id"),
         "root": _require_text(root_id, "root_id"),
-        "outcome": _require_text(outcome, "outcome"),
-    }
-    _merge_extra(payload, extra)
-    return ensure_issue_dag_event(payload)
-
-
-def build_node_reconcile_event(
-    *,
-    issue_id: str,
-    root_id: str,
-    control_flow: str,
-    outcome: str,
-    extra: Mapping[str, Any] | None = None,
-) -> dict[str, Any]:
-    payload = {
-        "kind": NODE_RECONCILE,
-        "id": _require_text(issue_id, "issue_id"),
-        "root": _require_text(root_id, "root_id"),
-        "control_flow": _require_text(control_flow, "control_flow"),
         "outcome": _require_text(outcome, "outcome"),
     }
     _merge_extra(payload, extra)

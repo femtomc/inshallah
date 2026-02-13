@@ -25,39 +25,12 @@ def _termination(*, is_final: bool, reason: str) -> dict[str, Any]:
 @dataclass
 class FakeIssueClient:
     validation_plan: list[dict[str, Any]] = field(default_factory=list)
-    incremental_calls: list[tuple[str, str]] = field(default_factory=list)
-    reconcile_calls: list[str] = field(default_factory=list)
 
     def validate_orchestration_subtree(self, root_issue_id: str) -> dict[str, Any]:
         _ = root_issue_id
         if self.validation_plan:
             return dict(self.validation_plan.pop(0))
         return _termination(is_final=False, reason="not_terminal")
-
-    def reconcile_control_flow_subtree(self, root_issue_id: str) -> dict[str, Any]:
-        self.reconcile_calls.append(root_issue_id)
-        return {
-            "root_id": root_issue_id,
-            "reconciled_count": 0,
-            "validation": _termination(is_final=False, reason="not_terminal"),
-        }
-
-    def reconcile_control_flow_ancestors(
-        self,
-        issue_id: str,
-        *,
-        root_issue_id: str,
-    ) -> dict[str, Any]:
-        self.incremental_calls.append((issue_id, root_issue_id))
-        return {
-            "root_id": root_issue_id,
-            "issue_id": issue_id,
-            "target_count": 0,
-            "target_ids": [],
-            "reconciled_count": 0,
-            "reconciled": [],
-            "validation": _termination(is_final=False, reason="not_terminal"),
-        }
 
 
 @dataclass
@@ -165,7 +138,7 @@ def test_runner_stops_on_no_executable_leaf_after_successful_step() -> None:
     assert run.stop_reason == "no_executable_leaf"
     assert len(run.steps) == 1
     assert executor.calls == [("loopfarm-a", "loopfarm-root")]
-    assert issue.incremental_calls == [("loopfarm-a", "loopfarm-root")]
+    assert run.steps[0].maintenance["mode"] == "validate_only"
 
 
 def test_runner_stops_with_error_when_execution_fails() -> None:

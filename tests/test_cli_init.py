@@ -45,6 +45,19 @@ def test_init_skips_existing_files_without_force(monkeypatch, tmp_path: Path) ->
     assert orchestrator.read_text(encoding="utf-8") == "custom\n"
 
 
+def test_init_skip_prints_force_hint(monkeypatch, tmp_path: Path, capsys) -> None:
+    monkeypatch.chdir(tmp_path)
+    orchestrator = tmp_path / ".loopfarm" / "orchestrator.md"
+    orchestrator.parent.mkdir(parents=True, exist_ok=True)
+    orchestrator.write_text("custom\n", encoding="utf-8")
+
+    cli.main(["init"])
+
+    err = capsys.readouterr().err
+    assert "skipped: .loopfarm/orchestrator.md" in err
+    assert "loopfarm init --force" in err
+
+
 def test_init_force_overwrites_existing_files(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.chdir(tmp_path)
     worker = tmp_path / ".loopfarm" / "roles" / "worker.md"

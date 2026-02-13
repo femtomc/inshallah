@@ -106,7 +106,7 @@ def test_docs_show_issue_dag_topic_in_plain_and_rich(
     cli.main(["docs", "show", "issue-dag-orchestration"])
     plain = capsys.readouterr().out
     assert "# Issue-DAG Orchestration" in plain
-    assert "cf:sequence" in plain
+    assert "`node:control` and `cf:*` tags are unsupported" in plain
     assert "role:<name>" in plain
     assert "execution_spec" in plain
     assert ".loopfarm/orchestrator.md" in plain
@@ -125,7 +125,7 @@ def test_docs_show_issue_dag_topic_in_plain_and_rich(
     assert "Issue-DAG Orchestration" in rich
     assert "node.plan" in rich
     assert "node.memory" in rich
-    assert "node.reconcile" in rich
+    assert "node.result" in rich
 
 
 def test_docs_search_plain_outputs_snippet_and_next_command(

@@ -15,7 +15,7 @@ src/loopfarm/
 │   ├── issue_dag_events.py       # canonical DAG event contracts
 │   ├── issue_dag_execution.py    # candidate selection + execution_spec adapter
 │   ├── issue_dag_orchestrator.py # route by execution_spec presence
-│   ├── issue_dag_runner.py       # deterministic select->execute->maintain loop
+│   ├── issue_dag_runner.py       # deterministic select->execute->validate loop
 │   ├── roles.py                  # role catalog + frontmatter defaults
 │   ├── control.py                # pause/resume/stop control-plane logic
 │   ├── events.py                 # event datatypes

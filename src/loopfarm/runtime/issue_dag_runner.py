@@ -29,15 +29,6 @@ IssueDagRunStopReason = Literal[
 class IssueDagRunnerIssueClient(Protocol):
     def validate_orchestration_subtree(self, root_issue_id: str) -> dict[str, Any]: ...
 
-    def reconcile_control_flow_subtree(self, root_issue_id: str) -> dict[str, Any]: ...
-
-    def reconcile_control_flow_ancestors(
-        self,
-        issue_id: str,
-        *,
-        root_issue_id: str,
-    ) -> dict[str, Any]: ...
-
 
 @dataclass(frozen=True)
 class IssueDagRunStep:
@@ -124,7 +115,6 @@ class IssueDagRunner:
         tags: list[str] | None = None,
         resume_mode: ResumeMode = "manual",
         max_steps: int = 1,
-        full_maintenance: bool = False,
     ) -> IssueDagRun:
         resolved_root = root_id.strip()
         if not resolved_root:
@@ -177,11 +167,7 @@ class IssueDagRunner:
                 selection,
                 root_id=resolved_root,
             )
-            maintenance = self._run_maintenance(
-                resolved_root,
-                issue_id=selection.issue_id,
-                full_maintenance=full_maintenance,
-            )
+            maintenance = self._run_maintenance(resolved_root)
             validation = dict(maintenance.get("validation") or {})
             termination_after = self._termination_payload(validation)
             steps.append(
@@ -227,41 +213,11 @@ class IssueDagRunner:
     def _run_maintenance(
         self,
         root_id: str,
-        *,
-        issue_id: str,
-        full_maintenance: bool,
     ) -> dict[str, Any]:
-        if full_maintenance:
-            reconciled = self.issue.reconcile_control_flow_subtree(root_id)
-            validation = reconciled.get("validation")
-            if not isinstance(validation, dict):
-                validation = self._validate_subtree(root_id)
-            return {
-                "mode": "full",
-                "root_id": root_id,
-                "reconciled_count": int(reconciled.get("reconciled_count") or 0),
-                "validation": dict(validation),
-            }
-
-        incremental = self.issue.reconcile_control_flow_ancestors(
-            issue_id,
-            root_issue_id=root_id,
-        )
-        validation = incremental.get("validation")
-        if not isinstance(validation, dict):
-            validation = self._validate_subtree(root_id)
-
-        target_ids = [
-            str(target_id) for target_id in list(incremental.get("target_ids") or [])
-        ]
+        validation = self._validate_subtree(root_id)
         return {
-            "mode": "incremental",
+            "mode": "validate_only",
             "root_id": root_id,
-            "issue_id": issue_id,
-            "target_count": int(incremental.get("target_count") or len(target_ids)),
-            "target_ids": target_ids,
-            "reconciled_count": int(incremental.get("reconciled_count") or 0),
-            "reconciled": list(incremental.get("reconciled") or []),
             "validation": dict(validation),
         }
 

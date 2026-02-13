@@ -75,7 +75,6 @@ class ExecutionSpec:
     phase_cli: dict[str, str]
     phase_models: dict[str, dict[str, str]]
     phase_prompts: dict[str, str]
-    control_flow: dict[str, Any]
 
     def loop_step_tuples(self) -> tuple[tuple[str, int], ...]:
         return tuple(step.to_tuple() for step in self.loop_steps)
@@ -129,7 +128,6 @@ class ExecutionSpec:
                 for phase, cfg in self.phase_models.items()
             },
             "phase_prompts": dict(self.phase_prompts),
-            "control_flow": dict(self.control_flow),
         }
 
 
@@ -208,17 +206,8 @@ def parse_execution_spec(value: object) -> ExecutionSpec:
         value.get("phase_prompts"),
         known_phases=phase_names,
     )
-
-    raw_control_flow = value.get("control_flow")
-    control_flow: dict[str, Any]
-    if raw_control_flow is None:
-        control_flow = {}
-    elif isinstance(raw_control_flow, Mapping):
-        control_flow = {
-            str(key): raw_control_flow[key] for key in raw_control_flow
-        }
-    else:
-        raise ValueError("execution_spec.control_flow must be an object")
+    if "control_flow" in value:
+        raise ValueError("execution_spec.control_flow is not supported")
 
     return ExecutionSpec(
         version=version,
@@ -233,7 +222,6 @@ def parse_execution_spec(value: object) -> ExecutionSpec:
         phase_cli=phase_cli,
         phase_models=phase_models,
         phase_prompts=phase_prompts,
-        control_flow=control_flow,
     )
 
 

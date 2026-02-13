@@ -89,42 +89,6 @@ class Issue:
     ) -> dict[str, Any]:
         return self.store.claim_ready_leaf(issue_id, root_id=root, tags=tags)
 
-    def evaluate_control_flow(self, issue_id: str) -> dict[str, Any] | None:
-        return self.store.evaluate_control_flow(issue_id)
-
-    def evaluatable_control_flow_nodes(
-        self, *, limit: int = 20
-    ) -> list[dict[str, Any]]:
-        return self.store.evaluatable_control_flow_nodes(limit=limit)
-
-    def reconcile_control_flow(self, issue_id: str) -> dict[str, Any]:
-        return self.store.reconcile_control_flow(issue_id)
-
-    def reconcile_control_flow_subtree(self, root_issue_id: str) -> dict[str, Any]:
-        return self.store.reconcile_control_flow_subtree(root_issue_id)
-
-    def affected_control_flow_ancestors(
-        self,
-        issue_id: str,
-        *,
-        root_id: str | None = None,
-    ) -> list[dict[str, Any]]:
-        return self.store.affected_control_flow_ancestors(
-            issue_id,
-            root_id=root_id,
-        )
-
-    def reconcile_control_flow_ancestors(
-        self,
-        issue_id: str,
-        *,
-        root_issue_id: str,
-    ) -> dict[str, Any]:
-        return self.store.reconcile_control_flow_ancestors(
-            issue_id,
-            root_issue_id=root_issue_id,
-        )
-
     def validate_orchestration_subtree(self, root_issue_id: str) -> dict[str, Any]:
         return self.store.validate_orchestration_subtree(root_issue_id)
 
@@ -930,15 +894,11 @@ def _print_help(*, output_mode: str) -> None:
                     ),
                     (
                         "orchestrate-run --root <id>",
-                        "deterministic select→execute→maintain loop (stable)",
+                        "deterministic select→execute→validate loop (stable)",
                     ),
                     (
                         "orchestrate --root <id> (internal)",
                         "selection-only: claim + emit node.execute events",
-                    ),
-                    (
-                        "reconcile <id> [--root] (internal)",
-                        "control-flow maintenance for cf:* nodes",
                     ),
                     (
                         "validate-dag --root <id> (internal)",
@@ -1091,7 +1051,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     orchestrate_run = sub.add_parser(
         "orchestrate-run",
-        help="Run deterministic issue-DAG loop (select -> execute -> maintain)",
+        help="Run deterministic issue-DAG loop (select -> execute -> validate)",
     )
     orchestrate_run.add_argument(
         "--root",
@@ -1123,14 +1083,6 @@ def _build_parser() -> argparse.ArgumentParser:
         type=int,
         default=1,
         help="Maximum execution steps before forced stop (default: 1)",
-    )
-    orchestrate_run.add_argument(
-        "--full-maintenance",
-        action="store_true",
-        help=(
-            "Run full reconcile+validate maintenance after each step "
-            "(default: incremental affected-ancestor reconcile+validate)"
-        ),
     )
     orchestrate_run.add_argument(
         "--run-topic",
@@ -1248,22 +1200,6 @@ def _build_parser() -> argparse.ArgumentParser:
         help=f"Outcome when transitioning terminal status ({', '.join(ISSUE_OUTCOMES)})",
     )
     status.add_argument("--json", action="store_true", help="Output JSON")
-
-    reconcile = sub.add_parser(
-        "reconcile",
-        help="Reconcile control-flow node(s): prune + close when outcome is determinable",
-    )
-    reconcile.add_argument(
-        "id",
-        help="Control-flow issue id, or root issue id when using --root",
-    )
-    reconcile.add_argument(
-        "--root",
-        action="store_true",
-        help="Treat id as root and reconcile all cf:sequence/cf:fallback descendants",
-    )
-    reconcile.add_argument("--json", action="store_true", help="Output JSON")
-    add_output_mode_argument(reconcile)
 
     validate_dag = sub.add_parser(
         "validate-dag",
@@ -1584,7 +1520,6 @@ def main(argv: list[str] | None = None) -> None:
                 tags=run_tags,
                 resume_mode=args.resume_mode,
                 max_steps=max(1, int(args.max_steps)),
-                full_maintenance=bool(args.full_maintenance),
             )
             payload = _dag_run_payload(dag_run)
 
@@ -1653,55 +1588,6 @@ def main(argv: list[str] | None = None) -> None:
                 _emit_json(row)
             else:
                 _print_issue(row)
-            return
-
-        if args.command == "reconcile":
-            if args.root:
-                row = issue.reconcile_control_flow_subtree(args.id)
-            else:
-                row = issue.reconcile_control_flow(args.id)
-            if args.json:
-                _emit_json(row)
-            else:
-                if args.root:
-                    reconciled = row.get("reconciled") or []
-                    print(
-                        f"reconciled {len(reconciled)} control nodes under {row.get('root_id')}"
-                    )
-                    for entry in reconciled:
-                        print(
-                            f"{entry.get('id')} {entry.get('control_flow')} "
-                            f"outcome={entry.get('outcome') or '-'} "
-                            f"pruned={entry.get('pruned_count')}"
-                        )
-                    validation = row.get("validation") or {}
-                    errors = validation.get("errors") or []
-                    warnings = validation.get("warnings") or []
-                    termination = validation.get("termination") or {}
-                    is_final = bool(termination.get("is_final"))
-                    reason = str(termination.get("reason") or "-")
-                    print(f"root_final={is_final} reason={reason}")
-                    if errors:
-                        print(f"validation errors: {len(errors)}")
-                        for err in errors:
-                            print(
-                                f"ERROR {err.get('code')}: "
-                                f"{err.get('message')}"
-                            )
-                    if warnings:
-                        print(f"validation warnings: {len(warnings)}")
-                        for warning in warnings:
-                            print(
-                                f"WARN {warning.get('code')}: "
-                                f"{warning.get('message')}"
-                            )
-                else:
-                    print(
-                        f"{row.get('id')} {row.get('control_flow')} "
-                        f"outcome={row.get('outcome') or '-'} "
-                        f"pruned={row.get('pruned_count')} "
-                        f"closed={bool(row.get('closed'))}"
-                    )
             return
 
         if args.command == "validate-dag":

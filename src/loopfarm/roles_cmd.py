@@ -281,8 +281,6 @@ def _build_execution_spec_from_role(
         payload["default_model"] = defaults.model
     if defaults.reasoning:
         payload["default_reasoning"] = defaults.reasoning
-    if defaults.control_flow_mode:
-        payload["control_flow"] = {"mode": defaults.control_flow_mode}
     return normalize_execution_spec_payload(payload)
 
 

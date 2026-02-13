@@ -88,10 +88,6 @@ def _print_help(*, output_mode: str) -> None:
                         "manual|resume (default: manual)",
                     ),
                     (
-                        "--full-maintenance",
-                        "run full subtree reconcile/validate after each step",
-                    ),
-                    (
                         "--control-poll-seconds N",
                         "control checkpoint poll interval (default: 5)",
                     ),
@@ -164,7 +160,6 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-total-steps", type=int, default=1000)
     parser.add_argument("--scan-limit", type=int, default=20)
     parser.add_argument("--resume-mode", choices=("manual", "resume"), default="manual")
-    parser.add_argument("--full-maintenance", action="store_true", default=False)
     parser.add_argument(
         "--state-dir",
         help="Explicit .loopfarm state directory path",
@@ -259,7 +254,6 @@ def _run_prompt_mode(
     max_total_steps: int,
     scan_limit: int,
     resume_mode: str,
-    full_maintenance: bool,
     state_dir: str | None,
     show_reasoning: bool,
     show_command_output: bool,
@@ -329,7 +323,6 @@ def _run_prompt_mode(
             root_id=root_id,
             max_steps=batch_budget,
             resume_mode=resume_mode,
-            full_maintenance=bool(full_maintenance),
         )
 
         run_steps = list(run.steps)
@@ -493,7 +486,6 @@ def main(argv: list[str] | None = None) -> None:
             max_total_steps=max(1, int(args.max_total_steps)),
             scan_limit=max(1, int(args.scan_limit)),
             resume_mode=str(args.resume_mode),
-            full_maintenance=bool(args.full_maintenance),
             state_dir=str(args.state_dir or ""),
             show_reasoning=bool(args.show_reasoning),
             show_command_output=bool(args.show_command_output),

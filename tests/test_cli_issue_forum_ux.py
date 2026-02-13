@@ -532,7 +532,7 @@ def test_issue_orchestrate_run_json_executes_steps_until_max_steps(
         second["id"],
     ]
     assert all(step["execution"]["success"] is True for step in payload["steps"])
-    assert all(step["maintenance"]["mode"] == "incremental" for step in payload["steps"])
+    assert all(step["maintenance"]["mode"] == "validate_only" for step in payload["steps"])
 
     forum = Forum.from_workdir(tmp_path)
     run_messages = forum.read(DEFAULT_RUN_TOPIC, limit=10)
@@ -665,91 +665,6 @@ def test_issue_status_rejects_outcome_for_non_terminal_status(
     assert raised.value.code == 1
     err = capsys.readouterr().err
     assert "terminal statuses" in err
-
-
-def test_issue_reconcile_json_prunes_and_closes_control_node(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    issue = Issue.from_workdir(tmp_path)
-    node = issue.create("Fallback node", tags=["node:control", "cf:fallback"])
-    alt_a = issue.create("Alternative A")
-    alt_b = issue.create("Alternative B")
-    alt_c = issue.create("Alternative C")
-
-    issue.add_dep(node["id"], "parent", alt_a["id"])
-    issue.add_dep(node["id"], "parent", alt_b["id"])
-    issue.add_dep(node["id"], "parent", alt_c["id"])
-    issue.add_dep(alt_a["id"], "blocks", alt_b["id"])
-    issue.add_dep(alt_b["id"], "blocks", alt_c["id"])
-
-    issue.set_status(alt_a["id"], "closed", outcome="failure", outcome_provided=True)
-    issue.set_status(alt_b["id"], "closed", outcome="success", outcome_provided=True)
-
-    monkeypatch.chdir(tmp_path)
-    cli.main(["issue", "reconcile", node["id"], "--json"])
-    payload = json.loads(capsys.readouterr().out)
-
-    assert payload["id"] == node["id"]
-    assert payload["control_flow"] == "fallback"
-    assert payload["outcome"] == "success"
-    assert payload["pruned_count"] == 1
-    assert payload["pruned_ids"] == [alt_c["id"]]
-
-    pruned = Issue.from_workdir(tmp_path).show(alt_c["id"])
-    assert pruned is not None
-    assert pruned["status"] == "duplicate"
-    assert pruned["outcome"] == "skipped"
-
-
-def test_issue_reconcile_root_json_walks_subtree(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    issue = Issue.from_workdir(tmp_path)
-    root = issue.create("Root")
-    node = issue.create("Sequence node", tags=["node:control", "cf:sequence"])
-    first = issue.create("First")
-    second = issue.create("Second")
-
-    issue.add_dep(root["id"], "parent", node["id"])
-    issue.add_dep(node["id"], "parent", first["id"])
-    issue.add_dep(node["id"], "parent", second["id"])
-    issue.add_dep(first["id"], "blocks", second["id"])
-    issue.set_status(first["id"], "closed", outcome="failure", outcome_provided=True)
-
-    monkeypatch.chdir(tmp_path)
-    cli.main(["issue", "reconcile", root["id"], "--root", "--json"])
-    payload = json.loads(capsys.readouterr().out)
-
-    assert payload["root_id"] == root["id"]
-    assert payload["reconciled_count"] == 1
-    assert payload["reconciled"][0]["id"] == node["id"]
-    assert payload["validation"]["root_id"] == root["id"]
-    assert payload["validation"]["termination"]["reason"] == "root_not_terminal"
-
-
-def test_issue_reconcile_root_plain_prints_validation_errors(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    issue = Issue.from_workdir(tmp_path)
-    root = issue.create("Root")
-    child = issue.create("Child")
-    issue.add_dep(root["id"], "parent", child["id"])
-    issue.set_status(root["id"], "closed", outcome="expanded", outcome_provided=True)
-    issue.set_status(child["id"], "closed", outcome="success", outcome_provided=True)
-
-    monkeypatch.chdir(tmp_path)
-    cli.main(["issue", "reconcile", root["id"], "--root"])
-
-    out = capsys.readouterr().out
-    assert "validation errors:" in out
-    assert "ERROR orphaned_expanded_node" in out
-    assert "root_expanded_without_active_descendants" in out
 
 
 def test_issue_validate_dag_plain_prints_errors_and_exits_nonzero(

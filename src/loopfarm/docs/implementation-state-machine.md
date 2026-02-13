@@ -1,7 +1,7 @@
 # Issue-DAG Runner State Machine
 
 `loopfarm issue orchestrate-run --root <id>` (and prompt mode) runs a
-deterministic select → execute → maintain loop over an issue DAG.
+deterministic select → execute → validate loop over an issue DAG.
 
 ## Shape
 
@@ -12,7 +12,6 @@ repeat up to max_steps:
   selection = select_next_execution(root, tags, resume_mode)
   if selection is None: stop(no_executable_leaf)
   execute_selection(selection)   # orchestrator_planning or spec_execution
-  maintenance(selection)         # reconcile control-flow ancestors (or full subtree)
   validate(root)
 stop(max_steps_exhausted)
 ```
@@ -49,7 +48,8 @@ Orchestration runs stop with one of:
 - `max_steps_exhausted`: step budget reached before root final.
 - `error`: selection execution failed or postconditions were violated.
 
-## Maintenance Modes
+## Post-Step Validation
 
-- incremental (default): `reconcile_control_flow_ancestors(issue_id, root_issue_id=...)`
-- full (`--full-maintenance`): `reconcile_control_flow_subtree(root_issue_id)`
+Each executed step performs subtree validation only:
+
+- `validate_orchestration_subtree(root_issue_id)`

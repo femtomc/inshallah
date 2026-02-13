@@ -5,12 +5,11 @@ import pytest
 from loopfarm.runtime.issue_dag_events import (
     NODE_EXECUTE,
     NODE_MEMORY,
-    NODE_RECONCILE,
+    NODE_RESULT,
     build_node_execute_event,
     build_node_expand_event,
     build_node_memory_event,
     build_node_plan_event,
-    build_node_reconcile_event,
     build_node_result_event,
     required_fields_for_kind,
     validate_issue_dag_event,
@@ -40,13 +39,12 @@ def test_required_fields_for_memory_kind_are_stable() -> None:
 def test_validate_issue_dag_event_reports_missing_required_fields() -> None:
     errors = validate_issue_dag_event(
         {
-            "kind": NODE_RECONCILE,
-            "id": "loopfarm-control",
+            "kind": NODE_RESULT,
+            "id": "loopfarm-result",
         }
     )
     assert errors == [
         "missing root",
-        "missing control_flow",
         "missing outcome",
     ]
 
@@ -110,12 +108,6 @@ def test_event_builders_emit_schema_valid_payloads() -> None:
         build_node_result_event(
             issue_id="loopfarm-a",
             root_id="loopfarm-root",
-            outcome="success",
-        ),
-        build_node_reconcile_event(
-            issue_id="loopfarm-control",
-            root_id="loopfarm-root",
-            control_flow="fallback",
             outcome="success",
         ),
     ]

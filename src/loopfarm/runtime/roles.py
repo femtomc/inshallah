@@ -27,7 +27,6 @@ class RoleExecutionDefaults:
     team: str | None = None
     termination_phase: str | None = None
     loop_steps: tuple[tuple[str, int], ...] = ()
-    control_flow_mode: str | None = None
 
     @classmethod
     def from_frontmatter(cls, payload: dict[str, Any]) -> "RoleExecutionDefaults":
@@ -36,9 +35,6 @@ class RoleExecutionDefaults:
         reasoning = _as_text(payload.get("reasoning"))
         team = _as_text(payload.get("team"))
         termination_phase = _as_text(payload.get("termination_phase"))
-        control_flow_mode = _as_text(payload.get("control_flow_mode")) or _as_text(
-            payload.get("control_flow")
-        )
         loop_steps = _parse_loop_steps(payload.get("loop_steps"))
         return cls(
             cli=cli,
@@ -47,7 +43,6 @@ class RoleExecutionDefaults:
             team=team,
             termination_phase=termination_phase,
             loop_steps=loop_steps,
-            control_flow_mode=control_flow_mode,
         )
 
 

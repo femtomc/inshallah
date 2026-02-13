@@ -51,7 +51,7 @@ _TOPIC_SPECS = (
     DocTopicSpec(
         topic="implementation-state-machine",
         file_name="implementation-state-machine.md",
-        description="Select→execute→maintain loop, termination gates, and stop reasons.",
+        description="Select→execute→validate loop, termination gates, and stop reasons.",
     ),
     DocTopicSpec(
         topic="source-layout",
@@ -61,7 +61,7 @@ _TOPIC_SPECS = (
     DocTopicSpec(
         topic="issue-dag-orchestration",
         file_name="issue-dag-orchestration.md",
-        description="Hierarchical planning with issue DAG control-flow + forum state.",
+        description="Hierarchical planning with issue DAG execution + forum state.",
     ),
 )
 

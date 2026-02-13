@@ -180,6 +180,12 @@ def main(argv: list[str] | None = None) -> None:
     for rel_path in skipped:
         print(f"skipped: {rel_path}", file=sys.stderr)
 
+    if skipped and not args.force:
+        print(
+            "hint: run `loopfarm init --force` to overwrite existing scaffold files",
+            file=sys.stderr,
+        )
+
     if not created and not overwritten:
         print("nothing changed", file=sys.stderr)
 
