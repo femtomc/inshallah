@@ -3,57 +3,50 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
   <title>{% block title %}loopfarm{% endblock %}</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 96 96'%3E%3Crect width='96' height='96' rx='18' fill='%230b1220'/%3E%3Cpath d='M22 22h18v52H22zm34 0h18v18H56zm0 34h18v18H56z' fill='%23f6bc2f'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="/static/emes.css">
   <link rel="stylesheet" href="/static/app.css">
 </head>
-<body>
-  <div class="emes-status-bar show-mobile" id="status-bar">
-    <div class="emes-status-bar-item">
-      <span class="status-indicator" id="sse-indicator"></span>
-      <span class="emes-status-bar-value" id="sse-status">connecting</span>
-    </div>
-    <div class="emes-status-bar-item">
-      <span class="emes-status-bar-label">roots</span>
-      <span class="emes-status-bar-value" id="stat-roots">-</span>
-    </div>
-    <div class="emes-status-bar-item">
-      <span class="emes-status-bar-label">open</span>
-      <span class="emes-status-bar-value" id="stat-open">-</span>
-    </div>
-    <div class="emes-status-bar-item">
-      <span class="emes-status-bar-label">ready</span>
-      <span class="emes-status-bar-value" id="stat-ready">-</span>
-    </div>
-    <div class="emes-status-bar-item">
-      <span class="emes-status-bar-label">failed</span>
-      <span class="emes-status-bar-value" id="stat-failed">-</span>
-    </div>
-  </div>
+<body class="lf-shell">
+  <div class="lf-bg" aria-hidden="true"></div>
 
-  <div class="emes-colorscale-full"></div>
+  <header class="lf-header">
+    <div class="lf-header-inner">
+      <a href="/" class="lf-brand">
+        <span class="lf-brand-mark">lf</span>
+        <span class="lf-brand-copy">
+          <strong class="lf-brand-name">loopfarm</strong>
+          <span class="lf-brand-sub">issue orchestration dashboard</span>
+        </span>
+      </a>
 
-  <header class="emes-header">
-    <div class="emes-header-inner">
-      <div class="emes-header-brand">
-        <a href="/" class="emes-logo-logotype" style="text-decoration:none;color:inherit">
-          <h1 style="margin:0;font-size:16px">loopfarm</h1>
-        </a>
-      </div>
-      <nav class="emes-header-nav">
-        <a href="/" class="emes-btn-nav{% if active_nav == 'dashboard' %} active{% endif %}">dashboard</a>
-        <a href="/roles" class="emes-btn-nav{% if active_nav == 'roles' %} active{% endif %}">roles</a>
+      <nav class="lf-nav" aria-label="Primary">
+        <a href="/" class="lf-nav-link{% if active_nav == 'dashboard' %} active{% endif %}">dashboard</a>
+        <a href="/roles" class="lf-nav-link{% if active_nav == 'roles' %} active{% endif %}">roles</a>
       </nav>
+
+      <div class="lf-status" id="status-bar" aria-label="Live system status">
+        <span class="lf-status-item is-connection">
+          <span class="status-indicator" id="sse-indicator"></span>
+          <span class="lf-status-value" id="sse-status">connecting</span>
+        </span>
+        <span class="lf-status-item"><span class="lf-status-label">roots</span><span class="lf-status-value" id="stat-roots">-</span></span>
+        <span class="lf-status-item"><span class="lf-status-label">open</span><span class="lf-status-value" id="stat-open">-</span></span>
+        <span class="lf-status-item"><span class="lf-status-label">ready</span><span class="lf-status-value" id="stat-ready">-</span></span>
+        <span class="lf-status-item"><span class="lf-status-label">failed</span><span class="lf-status-value" id="stat-failed">-</span></span>
+      </div>
     </div>
   </header>
 
-  {% block content %}{% endblock %}
+  <main class="lf-main">
+    {% block content %}{% endblock %}
+  </main>
 
-  <footer class="emes-footer">
-    <div class="emes-footer-inner" style="max-width:none">
-      <span class="emes-footer-brand"><span class="emes-sku">loopfarm {{ version }}</span></span>
-      <span style="font-size:0.75rem;color:var(--emes-gray-500)">{{ repo_root }}</span>
-    </div>
+  <footer class="lf-footer">
+    <span class="lf-footer-brand">loopfarm {{ version }}</span>
+    <span class="lf-footer-root">{{ repo_root }}</span>
   </footer>
 
   <script src="/static/emes.js"></script>

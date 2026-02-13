@@ -1,48 +1,79 @@
 {# Detail panel — loaded into the right pane when a node is focused #}
 <div class="detail-panel" id="detail-panel">
-  <div class="detail-header">
-    <input type="text" class="detail-title emes-input" id="detail-title"
-           value="" onblur="saveTitle()" onkeydown="if(event.key==='Enter'){this.blur()}">
-    <button class="emes-btn-sm" onclick="closePanel()">&#x2715;</button>
-  </div>
-
-  <div class="detail-section">
-    <h6 class="emes-h6">body</h6>
-    <textarea class="detail-body emes-textarea-brutal" id="detail-body"
-              rows="4" onblur="saveBody()"></textarea>
-  </div>
-
-  <div class="detail-section">
-    <h6 class="emes-h6">metadata</h6>
-    <div class="detail-meta" id="detail-meta"></div>
-  </div>
-
-  <div class="detail-section">
-    <h6 class="emes-h6">tags</h6>
-    <div id="detail-tags" class="emes-flex emes-gap-1" style="flex-wrap:wrap"></div>
-  </div>
-
-  <div class="detail-section">
-    <h6 class="emes-h6">dependencies</h6>
-    <div id="detail-deps"></div>
-  </div>
-
-  <div class="detail-section">
-    <h6 class="emes-h6">actions</h6>
-    <div class="emes-flex emes-gap-2" style="flex-wrap:wrap" id="detail-actions"></div>
-  </div>
-
-  <div class="detail-section">
-    <h6 class="emes-h6">execution log</h6>
-    <div id="detail-log" class="detail-log"></div>
-  </div>
-
-  <div class="detail-section">
-    <h6 class="emes-h6">forum messages</h6>
-    <div id="detail-forum"></div>
-    <div class="emes-flex emes-gap-2 emes-mt-2">
-      <input type="text" class="emes-input" id="forum-input" placeholder="Post a message..." style="flex:1">
-      <button class="emes-btn-sm" onclick="postForumMessage()">post</button>
+  <header class="detail-header">
+    <div class="detail-title-wrap">
+      <label for="detail-title" class="detail-label">Issue title</label>
+      <input
+        type="text"
+        class="detail-title emes-input"
+        id="detail-title"
+        value=""
+        onblur="saveTitle()"
+        onkeydown="if(event.key==='Enter'){this.blur()}"
+      >
+      <div class="detail-title-meta">
+        <span class="detail-save-state" id="detail-save-state">saved</span>
+        <span class="detail-issue-id" id="detail-issue-id">-</span>
+      </div>
     </div>
-  </div>
+    <button class="emes-btn-sm detail-close" onclick="closePanel()" aria-label="Close detail panel">close</button>
+  </header>
+
+  <section class="detail-section">
+    <h3 class="detail-section-title">Body</h3>
+    <textarea class="detail-body emes-textarea-brutal" id="detail-body" rows="5" onblur="saveBody()"></textarea>
+  </section>
+
+  <section class="detail-section">
+    <h3 class="detail-section-title">Metadata</h3>
+    <div class="detail-meta" id="detail-meta"></div>
+  </section>
+
+  <section class="detail-section">
+    <h3 class="detail-section-title">Tags</h3>
+    <div id="detail-tags" class="detail-chips"></div>
+  </section>
+
+  <section class="detail-section">
+    <h3 class="detail-section-title">Dependencies</h3>
+    <div id="detail-deps" class="detail-list"></div>
+  </section>
+
+  <section class="detail-section">
+    <h3 class="detail-section-title">Actions</h3>
+    <div class="detail-actions" id="detail-actions"></div>
+
+    <div class="detail-inline-forms">
+      <div class="detail-inline-row">
+        <button class="emes-btn-sm" type="button" onclick="beginCreateChild()">new child</button>
+        <form id="create-child-inline" class="inline-create-form" onsubmit="submitCreateChild(event)">
+          <input type="text" class="emes-input" id="create-child-title" placeholder="Child issue title">
+          <button class="emes-btn-sm emes-btn-green" type="submit">create</button>
+          <button class="emes-btn-sm" type="button" onclick="cancelCreateChild()">cancel</button>
+        </form>
+      </div>
+      <div class="detail-inline-row">
+        <button class="emes-btn-sm" type="button" onclick="beginCreateSibling()">new sibling</button>
+        <form id="create-sibling-inline" class="inline-create-form" onsubmit="submitCreateSibling(event)">
+          <input type="text" class="emes-input" id="create-sibling-title" placeholder="Sibling issue title">
+          <button class="emes-btn-sm emes-btn-green" type="submit">create</button>
+          <button class="emes-btn-sm" type="button" onclick="cancelCreateSibling()">cancel</button>
+        </form>
+      </div>
+    </div>
+  </section>
+
+  <section class="detail-section">
+    <h3 class="detail-section-title">Execution log</h3>
+    <div id="detail-log" class="detail-log"></div>
+  </section>
+
+  <section class="detail-section">
+    <h3 class="detail-section-title">Forum messages</h3>
+    <div id="detail-forum" class="detail-forum"></div>
+    <form class="forum-compose" onsubmit="postForumMessage(event)">
+      <input type="text" class="emes-input" id="forum-input" placeholder="Post a message...">
+      <button class="emes-btn-sm emes-btn-green" type="submit">post</button>
+    </form>
+  </section>
 </div>
