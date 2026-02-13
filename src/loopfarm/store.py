@@ -271,6 +271,15 @@ class IssueStore:
         if root["status"] == "closed":
             return ValidationResult(is_final=True, reason="root closed")
 
+        # Check for failures first (takes priority)
+        failed = [
+            i for i in ids if by_id.get(i, {}).get("outcome") == "failure"
+        ]
+        if failed:
+            return ValidationResult(
+                is_final=True, reason=f"failures: {','.join(failed)}"
+            )
+
         # Check if all children are closed
         all_closed = all(
             by_id[i]["status"] == "closed" for i in ids if i != root_id and i in by_id
@@ -278,15 +287,6 @@ class IssueStore:
         if all_closed and len(ids) > 1:
             return ValidationResult(
                 is_final=False, reason="all children closed, root still open"
-            )
-
-        # Check for failures
-        failed = [
-            i for i in ids if by_id.get(i, {}).get("outcome") == "failure"
-        ]
-        if failed:
-            return ValidationResult(
-                is_final=True, reason=f"failures: {','.join(failed)}"
             )
 
         return ValidationResult(is_final=False, reason="in progress")
