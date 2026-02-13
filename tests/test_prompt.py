@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from loopfarm.prompt import build_role_catalog, render
+from loopfarm.prompt import build_role_catalog, list_roles_json, render
 
 
 def _write_role(tmp_path: Path, name: str, frontmatter: str, body: str) -> None:
@@ -25,10 +25,12 @@ class TestBuildRoleCatalog:
         _write_role(tmp_path, "worker", "cli: codex\nmodel: gpt-5.2\nreasoning: xhigh\n", "You are a worker.\n")
         catalog = build_role_catalog(tmp_path)
         assert "### worker" in catalog
+        assert "description: You are a worker." in catalog
+        assert "description_source: body" in catalog
         assert "cli: codex" in catalog
         assert "model: gpt-5.2" in catalog
         assert "reasoning: xhigh" in catalog
-        assert "> You are a worker." in catalog
+        assert "prompt: .loopfarm/roles/worker.md" in catalog
 
     def test_multiple_roles_sorted(self, tmp_path: Path) -> None:
         _write_role(tmp_path, "worker", "cli: codex\n", "Worker description.\n")
@@ -45,13 +47,51 @@ class TestBuildRoleCatalog:
         (roles_dir / "plain.md").write_text("Just a plain role.\n")
         catalog = build_role_catalog(tmp_path)
         assert "### plain" in catalog
-        assert "default config" in catalog
-        assert "> Just a plain role." in catalog
+        assert "config: default config" in catalog
+        assert "description: Just a plain role." in catalog
 
     def test_role_skips_blank_lines_for_description(self, tmp_path: Path) -> None:
         _write_role(tmp_path, "tester", "cli: claude\n", "\n\nActual description here.\n")
         catalog = build_role_catalog(tmp_path)
-        assert "> Actual description here." in catalog
+        assert "description: Actual description here." in catalog
+
+    def test_role_prefers_frontmatter_description(self, tmp_path: Path) -> None:
+        _write_role(
+            tmp_path,
+            "tester",
+            "description: Frontmatter summary\ncli: claude\n",
+            "Body line should not be used.\n",
+        )
+        catalog = build_role_catalog(tmp_path)
+        assert "description: Frontmatter summary" in catalog
+        assert "description_source: frontmatter" in catalog
+        assert "description: Body line should not be used." not in catalog
+
+
+class TestListRolesJson:
+    def test_description_source_frontmatter(self, tmp_path: Path) -> None:
+        _write_role(
+            tmp_path,
+            "worker",
+            "description: Frontmatter summary\ncli: codex\n",
+            "Body fallback.\n",
+        )
+        roles = list_roles_json(tmp_path)
+        assert roles == [{
+            "name": "worker",
+            "prompt_path": ".loopfarm/roles/worker.md",
+            "cli": "codex",
+            "model": "",
+            "reasoning": "",
+            "description": "Frontmatter summary",
+            "description_source": "frontmatter",
+        }]
+
+    def test_description_source_body_fallback(self, tmp_path: Path) -> None:
+        _write_role(tmp_path, "worker", "cli: codex\n", "Body fallback.\n")
+        roles = list_roles_json(tmp_path)
+        assert roles[0]["description"] == "Body fallback."
+        assert roles[0]["description_source"] == "body"
 
 
 class TestRender:

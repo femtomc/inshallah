@@ -28,7 +28,7 @@ def test_one_role(tmp_path: Path, capsys) -> None:
     roles_dir = tmp_path / ".loopfarm" / "roles"
     roles_dir.mkdir()
     (roles_dir / "worker.md").write_text(
-        "---\ncli: codex\nmodel: gpt-5.3\nreasoning: xhigh\n---\nA worker role.\n"
+        "---\ndescription: Frontmatter worker summary\ncli: codex\nmodel: gpt-5.3\nreasoning: xhigh\n---\nA worker role.\n"
     )
     with patch("loopfarm.cli._find_repo_root", return_value=tmp_path):
         rc = cmd_roles([], None)
@@ -39,7 +39,9 @@ def test_one_role(tmp_path: Path, capsys) -> None:
     assert out[0]["cli"] == "codex"
     assert out[0]["model"] == "gpt-5.3"
     assert out[0]["reasoning"] == "xhigh"
-    assert out[0]["description"] == "A worker role."
+    assert out[0]["prompt_path"] == ".loopfarm/roles/worker.md"
+    assert out[0]["description"] == "Frontmatter worker summary"
+    assert out[0]["description_source"] == "frontmatter"
 
 
 def test_multiple_roles_sorted(tmp_path: Path, capsys) -> None:
@@ -66,3 +68,16 @@ def test_pretty_flag(tmp_path: Path, capsys) -> None:
     # Pretty output has newlines and indentation
     assert "[\n" in raw or raw.strip() == "[]"
     json.loads(raw)  # Still valid JSON
+
+
+def test_description_falls_back_to_body(tmp_path: Path, capsys) -> None:
+    _setup(tmp_path)
+    roles_dir = tmp_path / ".loopfarm" / "roles"
+    roles_dir.mkdir()
+    (roles_dir / "worker.md").write_text("---\ncli: codex\n---\nBody summary.\n")
+    with patch("loopfarm.cli._find_repo_root", return_value=tmp_path):
+        rc = cmd_roles([], None)
+    assert rc == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out[0]["description"] == "Body summary."
+    assert out[0]["description_source"] == "body"

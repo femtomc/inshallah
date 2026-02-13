@@ -107,6 +107,7 @@ def cmd_init(console: Console) -> int:
     if not orch.exists():
         orch.write_text(
             "---\n"
+            "description: Plan and decompose root goals into atomic issues, assign the best role to each issue, and manage dependency order.\n"
             "cli: codex\n"
             "model: gpt-5.3-codex\n"
             "reasoning: xhigh\n"
@@ -129,7 +130,8 @@ def cmd_init(console: Console) -> int:
             "loopfarm issues list --root <root-id>\n"
             "loopfarm issues children <id>\n"
             "loopfarm issues ready --root <root-id>\n"
-            "loopfarm issues validate <root-id>\n\n"
+            "loopfarm issues validate <root-id>\n"
+            "loopfarm roles --pretty\n\n"
             "# Decompose work\n"
             "loopfarm issues create \"Title\" --body \"Details\" --parent <id> --role worker --priority 2\n"
             "loopfarm issues dep <src-id> blocks <dst-id>\n"
@@ -147,6 +149,7 @@ def cmd_init(console: Console) -> int:
     if not worker.exists():
         worker.write_text(
             "---\n"
+            "description: Best for concrete execution tasks; implement exactly one atomic issue (code/tests/docs), verify results, then close with a terminal outcome.\n"
             "cli: codex\n"
             "model: gpt-5.3-codex\n"
             "reasoning: xhigh\n"
@@ -435,18 +438,22 @@ def cmd_roles(argv: list[str], console: Console | None = None) -> int:
 
     table = Table(title="Roles", show_edge=False, pad_edge=False)
     table.add_column("Name", style="bold cyan")
+    table.add_column("Prompt")
     table.add_column("CLI")
     table.add_column("Model")
     table.add_column("Reasoning")
     table.add_column("Description")
+    table.add_column("Desc Source")
 
     for role in roles:
         table.add_row(
             role["name"],
+            role.get("prompt_path", "") or "-",
             role.get("cli", "") or "-",
             role.get("model", "") or "-",
             role.get("reasoning", "") or "-",
             role.get("description", "") or "",
+            role.get("description_source", "") or "-",
         )
 
     console.print(table)
