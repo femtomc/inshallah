@@ -1,509 +1,155 @@
+"""CLI entry point for loopfarm."""
+
 from __future__ import annotations
 
 import argparse
 import json
 import sys
 from pathlib import Path
-from typing import Any
+
+from rich.console import Console
 
 from . import __version__
-from .ui import add_output_mode_argument, render_help, resolve_output_mode
+from .dag import DagRunner
+from .store import ForumStore, IssueStore
+
+_SUBCOMMANDS = {"init"}
 
 
-def _print_help(*, output_mode: str) -> None:
-    render_help(
-        output_mode="rich" if output_mode == "rich" else "plain",
-        command="loopfarm",
-        summary="prompt-mode issue DAG orchestration",
-        usage=(
-            "loopfarm [OPTIONS] <prompt...>",
-            "loopfarm issue <command> [ARGS]",
-            "loopfarm <command> [ARGS]",
-        ),
-        sections=(
-            (
-                "Primary Workflows",
-                (
-                    (
-                        "prompt → root issue → orchestrate",
-                        "loopfarm \"<prompt>\" (or any unrecognized command)",
-                    ),
-                    (
-                        "direct DAG operations",
-                        "loopfarm issue <command> [ARGS]",
-                    ),
-                ),
-            ),
-            (
-                "Prompt Mode",
-                (
-                    (
-                        "fallback rule",
-                        "if the first token is not a known command, loopfarm treats argv as a prompt",
-                    ),
-                    (
-                        "reserved words",
-                        "if your prompt starts with a command name, quote the full prompt (ex: loopfarm \"issue ...\")",
-                    ),
-                ),
-            ),
-            (
-                "Commands",
-                (
-                    (
-                        "init",
-                        "scaffold .loopfarm/orchestrator.md and .loopfarm/roles/*.md",
-                    ),
-                    (
-                        "issue",
-                        "issue DAG operations (create/update, deps, orchestrate-run)",
-                    ),
-                    ("docs", "list/show/search built-in docs topics"),
-                    ("forum", "post/read/search loopfarm forum topics/messages"),
-                    ("sessions", "list/show recent loop sessions and summaries"),
-                    ("history", "alias for `sessions list`"),
-                    (
-                        "roles (internal)",
-                        "orchestrator-only role discovery/team assembly from role docs",
-                    ),
-                ),
-            ),
-            (
-                "Prompt Workflow Options",
-                (
-                    (
-                        "--max-steps N",
-                        "step budget per orchestration pass (default: 20)",
-                    ),
-                    (
-                        "--max-total-steps N",
-                        "total step budget across repeated passes (default: 1000)",
-                    ),
-                    (
-                        "--scan-limit N",
-                        "frontier scan limit for orchestration selection (default: 20)",
-                    ),
-                    (
-                        "--resume-mode MODE",
-                        "manual|resume (default: manual)",
-                    ),
-                    (
-                        "--control-poll-seconds N",
-                        "control checkpoint poll interval (default: 5)",
-                    ),
-                    (
-                        "--forward-report-max-lines N",
-                        "forward report line cap (default: 20)",
-                    ),
-                    (
-                        "--max-output-lines N",
-                        "streamed command output line cap (default: 60)",
-                    ),
-                    ("--json", "emit machine-stable JSON result payload"),
-                ),
-            ),
-            (
-                "Global Options",
-                (
-                    (
-                        "--output MODE",
-                        "auto|plain|rich",
-                    ),
-                    (
-                        "--state-dir PATH",
-                        "explicit .loopfarm state directory for subcommands/prompt mode",
-                    ),
-                    ("--version", "print installed loopfarm version"),
-                    ("-h, --help", "show this help"),
-                ),
-            ),
-            (
-                "Quick Start",
-                (
-                    ("bootstrap", "loopfarm init"),
-                    (
-                        "prompt mode",
-                        "loopfarm \"Design and implement sync engine\"",
-                    ),
-                    (
-                        "orchestrate existing root",
-                        "loopfarm issue orchestrate-run --root <id> --json",
-                    ),
-                    ("inspect DAG state", "loopfarm issue show <id> --json"),
-                ),
-            ),
-        ),
-        examples=(
-            (
-                "loopfarm \"Build OAuth flow with retries and observability\"",
-                "create a root issue from prompt and run orchestration",
-            ),
-            (
-                "loopfarm issue orchestrate-run --root loopfarm-123 --max-steps 8 --json",
-                "run up to 8 deterministic orchestration steps",
-            ),
-        ),
-        docs_tip=(
-            "Use `loopfarm docs show issue-dag-orchestration --output rich` for the "
-            "minimal-core execution contract."
-        ),
-        stderr=True,
-    )
+def _find_repo_root() -> Path:
+    """Walk up to find .git directory."""
+    p = Path.cwd()
+    while p != p.parent:
+        if (p / ".git").exists():
+            return p
+        p = p.parent
+    return Path.cwd()
 
 
-def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="loopfarm", add_help=False)
-    parser.add_argument("-h", "--help", action="store_true", default=False)
-    parser.add_argument("--version", action="store_true", default=False)
-    parser.add_argument("--json", action="store_true", default=False)
-    parser.add_argument("--max-steps", type=int, default=20)
-    parser.add_argument("--max-total-steps", type=int, default=1000)
-    parser.add_argument("--scan-limit", type=int, default=20)
-    parser.add_argument("--resume-mode", choices=("manual", "resume"), default="manual")
-    parser.add_argument(
-        "--state-dir",
-        help="Explicit .loopfarm state directory path",
-    )
-    parser.add_argument(
-        "--show-reasoning",
-        action="store_true",
-        default=False,
-        help="Show reasoning items in streamed backend output",
-    )
-    parser.add_argument(
-        "--show-command-output",
-        action="store_true",
-        default=False,
-        help="Always show command output in streamed backend output",
-    )
-    parser.add_argument(
-        "--show-command-start",
-        action="store_true",
-        default=False,
-        help="Show command start events in streamed backend output",
-    )
-    parser.add_argument(
-        "--show-small-output",
-        action="store_true",
-        default=False,
-        help="Show output when it fits truncation limits",
-    )
-    parser.add_argument(
-        "--show-tokens",
-        action="store_true",
-        default=False,
-        help="Show token usage events",
-    )
-    parser.add_argument(
-        "--max-output-lines",
-        type=int,
-        default=60,
-        help="Maximum command output lines to render per command",
-    )
-    parser.add_argument(
-        "--max-output-chars",
-        type=int,
-        default=2000,
-        help="Maximum command output chars to render per command",
-    )
-    parser.add_argument(
-        "--control-poll-seconds",
-        type=int,
-        default=5,
-        help="Control checkpoint polling interval in seconds",
-    )
-    parser.add_argument(
-        "--forward-report-max-lines",
-        type=int,
-        default=20,
-        help="Maximum forward-report lines for diff/status sections",
-    )
-    parser.add_argument(
-        "--forward-report-max-commits",
-        type=int,
-        default=12,
-        help="Maximum forward-report commit lines",
-    )
-    parser.add_argument(
-        "--forward-report-max-summary-chars",
-        type=int,
-        default=800,
-        help="Maximum forward-report summary characters",
-    )
-    add_output_mode_argument(parser)
-    parser.add_argument("command", nargs="?")
-    parser.add_argument("args", nargs=argparse.REMAINDER)
-    return parser
+def _run_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(prog="loopfarm", add_help=False)
+    p.add_argument("prompt", nargs="*")
+    p.add_argument("--max-steps", type=int, default=20)
+    p.add_argument("--cli", default="codex", choices=["codex", "claude"])
+    p.add_argument("--model", default="o3")
+    p.add_argument("--reasoning", default="high")
+    p.add_argument("--prompt-path", default=None)
+    p.add_argument("--json", action="store_true")
+    return p
 
 
-def _prompt_title(prompt: str) -> str:
-    first = next((line.strip() for line in prompt.splitlines() if line.strip()), "")
-    if not first:
-        return "Prompt Root"
-    if len(first) <= 96:
-        return first
-    return first[:93].rstrip() + "..."
+def cmd_init(console: Console) -> int:
+    root = _find_repo_root()
+    lf = root / ".loopfarm"
+    lf.mkdir(exist_ok=True)
+    (lf / "issues.jsonl").touch()
+    (lf / "forum.jsonl").touch()
 
-
-def _run_prompt_mode(
-    *,
-    prompt: str,
-    output_mode: str,
-    as_json: bool,
-    max_steps: int,
-    max_total_steps: int,
-    scan_limit: int,
-    resume_mode: str,
-    state_dir: str | None,
-    show_reasoning: bool,
-    show_command_output: bool,
-    show_command_start: bool,
-    show_small_output: bool,
-    show_tokens: bool,
-    max_output_lines: int,
-    max_output_chars: int,
-    control_poll_seconds: int,
-    forward_report_max_lines: int,
-    forward_report_max_commits: int,
-    forward_report_max_summary_chars: int,
-) -> None:
-    from .forum import Forum
-    from .issue import Issue
-    from .runtime.issue_dag_runner import IssueDagRunner
-
-    repo_root = Path.cwd()
-    resolved_state_dir = state_dir.strip() if state_dir else ""
-    issue = Issue.from_workdir(
-        repo_root,
-        create=True,
-        state_dir=resolved_state_dir or None,
-    )
-    root = issue.create(
-        _prompt_title(prompt),
-        body=prompt,
-        tags=["node:agent"],
-    )
-
-    runner = IssueDagRunner(
-        repo_root=repo_root,
-        issue=issue,
-        forum=Forum.from_workdir(
-            repo_root,
-            state_dir=resolved_state_dir or None,
-        ),
-        scan_limit=max(1, int(scan_limit)),
-        show_reasoning=bool(show_reasoning),
-        show_command_output=bool(show_command_output),
-        show_command_start=bool(show_command_start),
-        show_small_output=bool(show_small_output),
-        show_tokens=bool(show_tokens),
-        max_output_lines=max(1, int(max_output_lines)),
-        max_output_chars=max(1, int(max_output_chars)),
-        control_poll_seconds=max(1, int(control_poll_seconds)),
-        forward_report_max_lines=max(1, int(forward_report_max_lines)),
-        forward_report_max_commits=max(1, int(forward_report_max_commits)),
-        forward_report_max_summary_chars=max(
-            1, int(forward_report_max_summary_chars)
-        ),
-    )
-
-    root_id = str(root["id"])
-    per_pass_budget = max(1, int(max_steps))
-    total_budget = max(1, int(max_total_steps))
-
-    collected_steps: list[dict[str, Any]] = []
-    stop_reason = "max_total_steps_exhausted"
-    error: str | None = None
-    termination: dict[str, Any] = {}
-    cursor = 0
-
-    while total_budget > 0:
-        batch_budget = min(per_pass_budget, total_budget)
-        run = runner.run(
-            root_id=root_id,
-            max_steps=batch_budget,
-            resume_mode=resume_mode,
+    orch = lf / "orchestrator.md"
+    if not orch.exists():
+        orch.write_text(
+            "---\n"
+            "cli: codex\n"
+            "model: o3\n"
+            "reasoning: high\n"
+            "---\n\n"
+            "{{PROMPT}}\n\n"
+            "{{DYNAMIC_CONTEXT}}\n\n"
+            "You are an orchestrator agent. Execute the task described above.\n"
+            "When done, close the issue using the loopfarm issue store.\n"
         )
 
-        run_steps = list(run.steps)
-        for step in run_steps:
-            cursor += 1
-            collected_steps.append(
-                {
-                    "index": cursor,
-                    "issue_id": step.selection.issue_id,
-                    "team": step.selection.team,
-                    "role": step.selection.role,
-                    "program": step.selection.program,
-                    "route": str(step.selection.metadata.get("route") or ""),
-                    "success": bool(step.execution.success),
-                    "session_id": step.execution.session_id,
-                }
-            )
+    (lf / "logs").mkdir(exist_ok=True)
+    console.print(f"[green]Initialized .loopfarm/ in {root}[/green]")
+    return 0
 
-        total_budget -= len(run_steps)
-        stop_reason = run.stop_reason
-        error = run.error
-        termination = dict(run.termination)
 
-        if stop_reason != "max_steps_exhausted":
-            break
-        if not run_steps:
-            stop_reason = "no_progress"
-            break
-    else:
-        stop_reason = "max_total_steps_exhausted"
+def cmd_run(args: argparse.Namespace, console: Console) -> int:
+    root = _find_repo_root()
+    store = IssueStore.from_workdir(root)
+    forum = ForumStore.from_workdir(root)
 
-    payload = {
-        "root_issue_id": root_id,
-        "prompt": prompt,
-        "stop_reason": stop_reason,
-        "step_count": len(collected_steps),
-        "error": error,
-        "termination": termination,
-        "steps": collected_steps,
-    }
+    prompt_text = " ".join(args.prompt)
+    if not prompt_text:
+        console.print("[red]No prompt provided.[/red]")
+        return 1
 
-    if as_json:
-        print(json.dumps(payload, ensure_ascii=False, indent=2))
-        return
-
-    _ = output_mode
-    print(
-        f"root={payload['root_issue_id']} stop_reason={payload['stop_reason']} "
-        f"steps={payload['step_count']}"
+    root_issue = store.create(
+        prompt_text,
+        tags=["node:agent", "node:root"],
+        execution_spec={
+            "role": "orchestrator",
+            "prompt_path": args.prompt_path or "",
+            "cli": args.cli,
+            "model": args.model,
+            "reasoning": args.reasoning,
+        },
     )
-    if payload["error"]:
-        print(f"error: {payload['error']}")
-    for step in payload["steps"]:
-        print(
-            f"step {step['index']}: {step['issue_id']} "
-            f"route={step['route'] or '-'} role={step['role']} "
-            f"program={step['program']} success={step['success']}"
+    console.print(
+        f"[bold]Root issue:[/bold] {root_issue['id']} — {prompt_text[:80]}"
+    )
+
+    runner = DagRunner(
+        store,
+        forum,
+        root,
+        default_cli=args.cli,
+        default_model=args.model,
+        default_reasoning=args.reasoning,
+        console=console,
+    )
+    result = runner.run(root_issue["id"], max_steps=args.max_steps)
+
+    if args.json:
+        json.dump(
+            {
+                "status": result.status,
+                "steps": result.steps,
+                "error": result.error,
+                "root_id": root_issue["id"],
+            },
+            sys.stdout,
+            indent=2,
         )
+        print()
+
+    return 0 if result.status == "root_final" else 1
 
 
 def main(argv: list[str] | None = None) -> None:
-    raw_argv = list(argv) if argv is not None else sys.argv[1:]
-    args = _build_parser().parse_args(raw_argv)
+    raw = argv if argv is not None else sys.argv[1:]
+    console = Console()
 
-    try:
-        output_mode = resolve_output_mode(
-            args.output,
-            is_tty=getattr(sys.stderr, "isatty", lambda: False)(),
+    # Handle --version and --help at top level
+    if "--version" in raw:
+        print(f"loopfarm {__version__}")
+        sys.exit(0)
+    if not raw or raw == ["--help"] or raw == ["-h"]:
+        console.print(
+            f"[bold]loopfarm[/bold] {__version__} — "
+            "DAG-based loop runner for agentic workflows\n"
         )
-    except ValueError as exc:
-        print(f"error: {exc}", file=sys.stderr)
-        raise SystemExit(2)
+        console.print("Usage:")
+        console.print("  loopfarm init                  Scaffold .loopfarm/")
+        console.print("  loopfarm <prompt>              Create root issue and run DAG")
+        console.print("  loopfarm <prompt> [options]    Run with options\n")
+        console.print("Options:")
+        console.print("  --max-steps N       Step budget (default: 20)")
+        console.print("  --cli codex|claude  Default backend (default: codex)")
+        console.print("  --model MODEL       Default model (default: o3)")
+        console.print("  --reasoning LEVEL   Reasoning level (default: high)")
+        console.print("  --prompt-path PATH  Prompt template path")
+        console.print("  --json              JSON output")
+        console.print("  --version           Show version")
+        sys.exit(0)
 
-    if args.help:
-        _print_help(output_mode=output_mode)
-        raise SystemExit(0)
-    if args.version:
-        print(__version__)
-        raise SystemExit(0)
+    # Subcommand dispatch
+    if raw[0] == "init":
+        sys.exit(cmd_init(console))
 
-    command = str(args.command or "").strip()
-    sub_argv = list(args.args or [])
-
-    def _with_shared_options(argv_in: list[str]) -> list[str]:
-        argv_out = list(argv_in)
-        if args.state_dir:
-            argv_out = ["--state-dir", str(args.state_dir), *argv_out]
-        if args.output and argv_out and argv_out[0] in {"-h", "--help"}:
-            if "--output" not in argv_out:
-                argv_out = [*argv_out, "--output", str(args.output)]
-        return argv_out
-    if not command:
-        _print_help(output_mode=output_mode)
-        raise SystemExit(0)
-
-    if command == "forum":
-        from .forum import main as forum_main
-
-        forum_main(_with_shared_options(sub_argv))
-        return
-    if command == "init":
-        from .init_cmd import main as init_main
-
-        init_main(sub_argv)
-        return
-    if command == "issue":
-        from .issue import main as issue_main
-
-        issue_main(_with_shared_options(sub_argv))
-        return
-    if command == "roles":
-        from .roles_cmd import main as roles_main
-
-        roles_main(_with_shared_options(sub_argv))
-        return
-    if command == "docs":
-        from .docs_cmd import main as docs_main
-
-        docs_main(sub_argv)
-        return
-    if command == "sessions":
-        from .sessions import main as sessions_main
-
-        sessions_main(
-            _with_shared_options(sub_argv or ["list"]),
-            prog="loopfarm sessions",
-        )
-        return
-    if command == "history":
-        from .sessions import main as sessions_main
-
-        if sub_argv and sub_argv[0] in {"-h", "--help"}:
-            sessions_main(
-                _with_shared_options(["--help"]),
-                prog="loopfarm history",
-            )
-            return
-        if sub_argv and sub_argv[0] in {"list", "show"}:
-            sessions_main(
-                _with_shared_options(sub_argv),
-                prog="loopfarm history",
-            )
-        else:
-            sessions_main(
-                _with_shared_options(["list", *sub_argv]),
-                prog="loopfarm history",
-            )
-        return
-
-    prompt = " ".join([command, *sub_argv]).strip()
-    if not prompt:
-        print("error: prompt cannot be empty", file=sys.stderr)
-        raise SystemExit(2)
-
-    try:
-        _run_prompt_mode(
-            prompt=prompt,
-            output_mode=output_mode,
-            as_json=bool(args.json),
-            max_steps=max(1, int(args.max_steps)),
-            max_total_steps=max(1, int(args.max_total_steps)),
-            scan_limit=max(1, int(args.scan_limit)),
-            resume_mode=str(args.resume_mode),
-            state_dir=str(args.state_dir or ""),
-            show_reasoning=bool(args.show_reasoning),
-            show_command_output=bool(args.show_command_output),
-            show_command_start=bool(args.show_command_start),
-            show_small_output=bool(args.show_small_output),
-            show_tokens=bool(args.show_tokens),
-            max_output_lines=max(1, int(args.max_output_lines)),
-            max_output_chars=max(1, int(args.max_output_chars)),
-            control_poll_seconds=max(1, int(args.control_poll_seconds)),
-            forward_report_max_lines=max(1, int(args.forward_report_max_lines)),
-            forward_report_max_commits=max(1, int(args.forward_report_max_commits)),
-            forward_report_max_summary_chars=max(
-                1, int(args.forward_report_max_summary_chars)
-            ),
-        )
-    except ValueError as exc:
-        print(f"error: {exc}", file=sys.stderr)
-        raise SystemExit(1)
+    # Everything else is a run command
+    args = _run_parser().parse_args(raw)
+    sys.exit(cmd_run(args, console))
 
 
 if __name__ == "__main__":

@@ -5,9 +5,9 @@ build-backend = "hatchling.build"
 [project]
 name = "loopfarm"
 version = "0.1.0"
-description = "Loopfarm planning/forward/backward loop runner"
+description = "DAG-based loop runner for agentic workflows"
 requires-python = ">=3.11"
-dependencies = ["rich>=13.7.1"]
+dependencies = ["rich>=13.7.1", "pyyaml>=6.0"]
 
 [project.scripts]
 loopfarm = "loopfarm.cli:main"
