@@ -39,7 +39,12 @@ class Backend:
                 text=True,
             )
             assert proc.stdout is not None
-            for line in proc.stdout:
+            while True:
+                line = proc.stdout.readline()
+                if not line and proc.poll() is not None:
+                    break
+                if not line:
+                    continue
                 line = line.rstrip("\n")
                 if on_line:
                     on_line(line)

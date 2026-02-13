@@ -11,9 +11,8 @@ from rich.console import Console
 
 from . import __version__
 from .dag import DagRunner
+from .fmt import get_formatter
 from .store import ForumStore, IssueStore
-
-_SUBCOMMANDS = {"init"}
 
 
 def _find_repo_root() -> Path:
