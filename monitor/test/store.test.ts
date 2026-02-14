@@ -9,6 +9,7 @@ async function makeStoreRoot(): Promise<string> {
   await mkdir(path.join(root, ".inshallah"));
   await writeFile(path.join(root, ".inshallah/issues.jsonl"), "");
   await writeFile(path.join(root, ".inshallah/forum.jsonl"), "");
+  await writeFile(path.join(root, ".inshallah/events.jsonl"), "");
   return root;
 }
 
@@ -101,4 +102,3 @@ describe("forum helpers", () => {
     expect(msgs.map((m) => m.body)).toEqual(["c", "b"]);
   });
 });
-

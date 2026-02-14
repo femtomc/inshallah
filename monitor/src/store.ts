@@ -4,7 +4,7 @@ import type { EventRecord, ForumMessage, Issue, JsonRecord } from "./types";
 import { parseJsonl } from "./jsonl";
 
 const STORE_DIRNAME = ".inshallah";
-const LOGS_DIRNAME = "logs";
+const EVENTS_FILENAME = "events.jsonl";
 const ENV_STORE_ROOT = "INSHALLAH_STORE_ROOT";
 
 async function existsDir(p: string): Promise<boolean> {
@@ -108,50 +108,65 @@ class JsonlCache<T> {
   }
 }
 
-type LogFileInfo = {
-  issue_id: string;
-  variant: string;
-  filePath: string;
-  source: string;
-  mtimeMs: number;
-  size: number;
-};
-
-function parseLogFilename(filename: string): { issue_id: string; variant: string } | null {
-  if (!filename.endsWith(".jsonl")) return null;
-  const stem = filename.slice(0, -".jsonl".length);
-  const idx = stem.indexOf(".");
-  const issue_id = idx === -1 ? stem : stem.slice(0, idx);
-  const variant = idx === -1 ? "" : stem.slice(idx + 1);
-  if (!issue_id) return null;
-  return { issue_id, variant };
-}
-
 function asEventRecord(
   value: unknown,
-  meta: { issue_id: string; variant: string; source: string; line: number; run_id: string | null; parse_error?: string },
+  meta: { sourceFile: string; line: number; rawLine?: string; parse_error?: string },
 ): EventRecord {
-  const type =
-    value && typeof value === "object" && !Array.isArray(value) && typeof (value as { type?: unknown }).type === "string"
-      ? ((value as { type: string }).type ?? "json")
-      : "json";
+  const errors: string[] = [];
 
-  return {
-    issue_id: meta.issue_id,
-    run_id: meta.run_id,
+  // Defaults for invalid/partial entries.
+  let v = 0;
+  let ts_ms = 0;
+  let type = "parse_error";
+  let source = meta.sourceFile;
+  let payload: unknown = meta.rawLine ?? value;
+  let issue_id: string | undefined;
+  let run_id: string | undefined;
+
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    const obj = value as JsonRecord;
+
+    if (typeof obj.v === "number" && Number.isFinite(obj.v)) v = obj.v;
+    else errors.push("v");
+
+    if (typeof obj.ts_ms === "number" && Number.isFinite(obj.ts_ms)) ts_ms = obj.ts_ms;
+    else errors.push("ts_ms");
+
+    if (typeof obj.type === "string") type = obj.type;
+    else errors.push("type");
+
+    if (typeof obj.source === "string") source = obj.source;
+    else errors.push("source");
+
+    if ("payload" in obj) payload = obj.payload;
+    else errors.push("payload");
+
+    if (typeof obj.issue_id === "string") issue_id = obj.issue_id;
+    if (typeof obj.run_id === "string") run_id = obj.run_id;
+  } else {
+    errors.push("object");
+  }
+
+  const parse_error =
+    meta.parse_error ?? (errors.length ? `invalid event envelope (missing/invalid: ${errors.join(",")})` : undefined);
+
+  const ev: EventRecord = {
+    v,
+    ts_ms,
     type,
-    variant: meta.variant,
-    source: meta.source,
+    source,
+    payload,
     line: meta.line,
-    value,
-    parse_error: meta.parse_error,
   };
+  if (issue_id !== undefined) ev.issue_id = issue_id;
+  if (run_id !== undefined) ev.run_id = run_id;
+  if (parse_error) ev.parse_error = parse_error;
+  return ev;
 }
 
-function parseEventLog(text: string, meta: { issue_id: string; variant: string; source: string }): EventRecord[] {
+function parseEventLog(text: string, meta: { sourceFile: string }): EventRecord[] {
   const out: EventRecord[] = [];
   const lines = text.split(/\r?\n/);
-  let run_id: string | null = null;
 
   for (let i = 0; i < lines.length; i++) {
     const raw = lines[i];
@@ -160,50 +175,24 @@ function parseEventLog(text: string, meta: { issue_id: string; variant: string; 
 
     const lineNo = i + 1;
 
-    if (!line.startsWith("{")) {
-      out.push(
-        asEventRecord(raw, {
-          ...meta,
-          line: lineNo,
-          run_id,
-        }),
-      );
-      out[out.length - 1]!.type = "raw";
-      continue;
-    }
-
     try {
       const parsed = JSON.parse(line) as unknown;
-      let evType: string | null = null;
-      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-        const t = (parsed as { type?: unknown }).type;
-        if (typeof t === "string") evType = t;
-      }
-
-      // `thread.started` establishes the run/thread id for subsequent events.
-      if (evType === "thread.started") {
-        const tid = (parsed as { thread_id?: unknown }).thread_id;
-        if (typeof tid === "string") run_id = tid;
-      }
-
       out.push(
         asEventRecord(parsed, {
           ...meta,
           line: lineNo,
-          run_id,
         }),
       );
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       out.push(
-        asEventRecord(raw, {
+        asEventRecord(line, {
           ...meta,
           line: lineNo,
-          run_id,
+          rawLine: line,
           parse_error: msg,
         }),
       );
-      out[out.length - 1]!.type = "raw";
     }
   }
 
@@ -215,40 +204,44 @@ class EventLogCache {
   private mtimeMs: number | null = null;
   private size: number | null = null;
 
-  constructor(
-    private readonly filePath: string,
-    private readonly meta: { issue_id: string; variant: string; source: string },
-  ) {}
+  constructor(private readonly filePath: string) {}
 
   async load(): Promise<EventRecord[]> {
-    const st = await fs.stat(this.filePath);
-    if (this.cached && this.mtimeMs === st.mtimeMs && this.size === st.size) return this.cached;
+    try {
+      const st = await fs.stat(this.filePath);
+      if (this.cached && this.mtimeMs === st.mtimeMs && this.size === st.size) return this.cached;
 
-    const text = await Bun.file(this.filePath).text();
-    const out = parseEventLog(text, this.meta);
+      const text = await Bun.file(this.filePath).text();
+      const out = parseEventLog(text, { sourceFile: path.basename(this.filePath) });
 
-    this.cached = out;
-    this.mtimeMs = st.mtimeMs;
-    this.size = st.size;
-    return out;
+      this.cached = out;
+      this.mtimeMs = st.mtimeMs;
+      this.size = st.size;
+      return out;
+    } catch (err) {
+      // Missing events log is a valid state for a freshly initialized store.
+      if (err && typeof err === "object" && "code" in err && (err as { code?: unknown }).code === "ENOENT") return [];
+      throw err;
+    }
   }
 }
 
 export class Store {
   readonly issuesPath: string;
   readonly forumPath: string;
-  readonly logsDir: string;
+  readonly eventsPath: string;
 
   private readonly issuesCache: JsonlCache<Issue>;
   private readonly forumCache: JsonlCache<ForumMessage>;
-  private readonly eventLogCaches: Map<string, EventLogCache> = new Map();
+  private readonly eventsCache: EventLogCache;
 
   constructor(readonly root: string) {
     this.issuesPath = path.join(root, STORE_DIRNAME, "issues.jsonl");
     this.forumPath = path.join(root, STORE_DIRNAME, "forum.jsonl");
-    this.logsDir = path.join(root, STORE_DIRNAME, LOGS_DIRNAME);
+    this.eventsPath = path.join(root, STORE_DIRNAME, EVENTS_FILENAME);
     this.issuesCache = new JsonlCache(this.issuesPath, asIssue);
     this.forumCache = new JsonlCache(this.forumPath, asForumMessage);
+    this.eventsCache = new EventLogCache(this.eventsPath);
   }
 
   async listIssues(): Promise<Issue[]> {
@@ -305,36 +298,6 @@ export class Store {
     return topicMsgs.slice(0, limit);
   }
 
-  async listEventLogFiles(params?: { issue_id?: string }): Promise<LogFileInfo[]> {
-    const issue_id = params?.issue_id;
-    if (!(await existsDir(this.logsDir))) return [];
-
-    const entries = await fs.readdir(this.logsDir, { withFileTypes: true });
-    const out: LogFileInfo[] = [];
-
-    for (const ent of entries) {
-      if (!ent.isFile()) continue;
-      const parsed = parseLogFilename(ent.name);
-      if (!parsed) continue;
-      if (issue_id && parsed.issue_id !== issue_id) continue;
-
-      const filePath = path.join(this.logsDir, ent.name);
-      const st = await fs.stat(filePath);
-      out.push({
-        issue_id: parsed.issue_id,
-        variant: parsed.variant,
-        filePath,
-        source: ent.name,
-        mtimeMs: st.mtimeMs,
-        size: st.size,
-      });
-    }
-
-    // Approximate chronological order.
-    out.sort((a, b) => a.mtimeMs - b.mtimeMs || a.source.localeCompare(b.source));
-    return out;
-  }
-
   async queryEvents(params?: {
     issue_id?: string;
     run_id?: string;
@@ -346,22 +309,8 @@ export class Store {
     const type = params?.type;
     const limit = params?.limit ?? 200;
 
-    const files = await this.listEventLogFiles({ issue_id });
-
-    let events: EventRecord[] = [];
-    for (const f of files) {
-      let cache = this.eventLogCaches.get(f.filePath);
-      if (!cache) {
-        cache = new EventLogCache(f.filePath, {
-          issue_id: f.issue_id,
-          variant: f.variant,
-          source: f.source,
-        });
-        this.eventLogCaches.set(f.filePath, cache);
-      }
-      events = events.concat(await cache.load());
-    }
-
+    let events = await this.eventsCache.load();
+    if (issue_id) events = events.filter((e) => e.issue_id === issue_id);
     if (run_id) events = events.filter((e) => e.run_id === run_id);
     if (type) events = events.filter((e) => e.type === type);
 

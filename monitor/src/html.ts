@@ -18,6 +18,15 @@ function fmtEpochSeconds(sec: number | undefined): string {
   }
 }
 
+function fmtEpochMs(ms: number | undefined): string {
+  if (!ms || !Number.isFinite(ms)) return "";
+  try {
+    return new Date(ms).toISOString().replace("T", " ");
+  } catch {
+    return String(ms);
+  }
+}
+
 export function renderIssuesPage(params: { storeRoot: string; issues: Issue[] }): string {
   const { storeRoot, issues } = params;
 
@@ -149,52 +158,14 @@ function safeQueryString(params: Record<string, string | undefined>): string {
   return qs ? `?${qs}` : "";
 }
 
-function previewEvent(e: EventRecord): string {
-  if (e.type === "raw") {
-    return typeof e.value === "string" ? e.value : String(e.value);
-  }
-
-  const v = e.value;
-  if (!v || typeof v !== "object" || Array.isArray(v)) return JSON.stringify(v) ?? "";
-
-  if (e.type === "thread.started") {
-    const tid = (v as { thread_id?: unknown }).thread_id;
-    if (typeof tid === "string") return `thread_id=${tid}`;
-  }
-
-  if (e.type.startsWith("item.")) {
-    const item = (v as { item?: unknown }).item;
-    if (item && typeof item === "object" && !Array.isArray(item)) {
-      const id = typeof (item as { id?: unknown }).id === "string" ? (item as { id: string }).id : "";
-      const t = typeof (item as { type?: unknown }).type === "string" ? (item as { type: string }).type : "";
-      const cmd =
-        t === "command_execution" && typeof (item as { command?: unknown }).command === "string"
-          ? (item as { command: string }).command
-          : "";
-      const txt =
-        (t === "agent_message" || t === "reasoning") && typeof (item as { text?: unknown }).text === "string"
-          ? (item as { text: string }).text
-          : "";
-      const bits = [
-        id ? `item.id=${id}` : "",
-        t ? `item.type=${t}` : "",
-        cmd ? `cmd=${cmd}` : "",
-        txt ? `text=${txt}` : "",
-      ].filter(Boolean);
-      if (bits.length) return bits.join(" ");
-    }
-  }
-
+function prettyJson(value: unknown): string {
+  if (value === undefined) return "";
   try {
-    return JSON.stringify(v);
+    const s = JSON.stringify(value, null, 2);
+    return s === undefined ? "" : s;
   } catch {
-    return String(v);
+    return String(value);
   }
-}
-
-function truncate(s: string, maxLen: number): string {
-  if (s.length <= maxLen) return s;
-  return s.slice(0, maxLen) + "...(truncated)";
 }
 
 export function renderEventsPage(params: {
@@ -218,17 +189,23 @@ export function renderEventsPage(params: {
 
   const rows = params.events
     .map((e, idx) => {
-      const preview = truncate(previewEvent(e), 400);
+      const tsHuman = fmtEpochMs(e.ts_ms);
+      const tsTitle = String(e.ts_ms);
+      const issue = e.issue_id ?? "";
       const run = e.run_id ?? "";
-      const src = escapeHtml(`${e.source}:${e.line}`);
-      const err = e.parse_error ? ` parse_error=${e.parse_error}` : "";
+      const payload = prettyJson(e.payload);
+      const srcTitle = `${e.source}:${e.line}`;
       return [
-        "<tr>",
+        `<tr${e.parse_error ? ' class="parse_error"' : ""}>`,
         `<td class="seq">${idx + 1}</td>`,
+        `<td class="ts" title="${escapeHtml(tsTitle)}">${escapeHtml(tsHuman || tsTitle)}</td>`,
+        `<td class="issue">${escapeHtml(issue)}</td>`,
         `<td class="run">${escapeHtml(run)}</td>`,
         `<td class="type">${escapeHtml(e.type)}</td>`,
-        `<td class="src">${src}</td>`,
-        `<td class="preview"><pre>${escapeHtml(preview + err)}</pre></td>`,
+        `<td class="src" title="${escapeHtml(srcTitle)}">${escapeHtml(e.source)}</td>`,
+        `<td class="payload"><pre>${escapeHtml(payload)}</pre>${
+          e.parse_error ? `<div class="err">parse_error=${escapeHtml(e.parse_error)}</div>` : ""
+        }</td>`,
         "</tr>",
       ].join("");
     })
@@ -312,15 +289,19 @@ export function renderEventsPage(params: {
         vertical-align: top;
       }
       td.seq { white-space: nowrap; color: var(--muted); }
+      td.ts { white-space: nowrap; color: var(--muted); }
+      td.issue { white-space: nowrap; color: var(--muted); }
       td.run { white-space: nowrap; color: var(--muted); }
       td.type { white-space: nowrap; }
       td.src { white-space: nowrap; color: var(--muted); }
-      td.preview { width: 100%; }
-      td.preview pre {
+      td.payload { width: 100%; }
+      td.payload pre {
         margin: 0;
         white-space: pre-wrap;
         word-break: break-word;
       }
+      tr.parse_error td { background: #fff8f8; }
+      .err { color: #a40000; margin-top: 4px; }
     </style>
   </head>
   <body>
@@ -337,10 +318,10 @@ export function renderEventsPage(params: {
         <input name="issue_id" value="${escapeHtml(issue_id)}" placeholder="inshallah-..." />
       </label>
       <label>run_id
-        <input class="small" name="run_id" value="${escapeHtml(run_id)}" placeholder="thread_id" />
+        <input class="small" name="run_id" value="${escapeHtml(run_id)}" placeholder="run-..." />
       </label>
       <label>type
-        <input class="small" name="type" value="${escapeHtml(type)}" placeholder="item.completed" />
+        <input class="small" name="type" value="${escapeHtml(type)}" placeholder="forum.post" />
       </label>
       <label>limit
         <input class="small" name="limit" value="${escapeHtml(String(limit))}" />
@@ -355,10 +336,12 @@ export function renderEventsPage(params: {
       <thead>
         <tr>
           <th>#</th>
+          <th>ts</th>
+          <th>issue_id</th>
           <th>run_id</th>
           <th>type</th>
           <th>source</th>
-          <th>preview</th>
+          <th>payload</th>
         </tr>
       </thead>
       <tbody>

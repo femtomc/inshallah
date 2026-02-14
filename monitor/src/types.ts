@@ -29,19 +29,15 @@ export type ForumMessage = {
   source?: string;
 } & JsonRecord;
 
-// Parsed entry from `.inshallah/logs/*.jsonl`.
-//
-// Notes:
-// - `issue_id` is derived from the log filename.
-// - `run_id` is derived from the most recent `thread.started` event in that file (if any).
-// - `value` is either the parsed JSON object (for JSON lines) or the raw line string.
+// Parsed entry from `.inshallah/events.jsonl` (append-only).
 export type EventRecord = {
-  issue_id: string;
-  run_id: string | null;
+  v: number;
+  ts_ms: number;
   type: string;
-  variant: string;
   source: string;
+  payload: unknown;
+  issue_id?: string;
+  run_id?: string;
   line: number;
-  value: unknown;
   parse_error?: string;
 };
