@@ -149,7 +149,7 @@ def _print_command_help(
 # ---------------------------------------------------------------------------
 
 
-def cmd_init(console: Console) -> int:
+def cmd_init(console: Console, *, force: bool = False) -> int:
     root = _find_repo_root()
     lf = root / ".inshallah"
     lf.mkdir(exist_ok=True)
@@ -160,20 +160,21 @@ def cmd_init(console: Console) -> int:
     prompts_dir = Path(__file__).parent / "prompts"
 
     orch = lf / "orchestrator.md"
-    if not orch.exists():
+    if force or not orch.exists():
         shutil.copy2(prompts_dir / "orchestrator.md", orch)
 
     roles_dir = lf / "roles"
     roles_dir.mkdir(exist_ok=True)
     for role_name in ("worker", "reviewer"):
         dest = roles_dir / f"{role_name}.md"
-        if not dest.exists():
+        if force or not dest.exists():
             shutil.copy2(prompts_dir / "roles" / f"{role_name}.md", dest)
 
     (lf / "logs").mkdir(exist_ok=True)
+    verb = "Reinitialized" if force else "Initialized"
     console.print(
         Panel(
-            f"Initialized [bold].inshallah/[/bold] in {root}",
+            f"{verb} [bold].inshallah/[/bold] in {root}",
             style="green",
             expand=False,
         )
@@ -1760,7 +1761,7 @@ def main(argv: list[str] | None = None) -> None:
     command = raw[0]
 
     if command == "init":
-        sys.exit(cmd_init(console))
+        sys.exit(cmd_init(console, force="--force" in raw[1:]))
 
     if command == "guide":
         sys.exit(cmd_guide(raw[1:], console))
