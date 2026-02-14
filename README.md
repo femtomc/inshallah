@@ -18,7 +18,9 @@ If Boris told you to jump off a cliff, would you say "Absolutely!" and hop off? 
 you shouldn't just accept what is given to you blindly, like the lowly dog you are? This is a cardinal rule of design, along with "never fight a token war with ChatGPT 5.2 xhigh".
 
 More on the nose: you are insignificant, your ideas are inconsequential, and your actions reduce to the mean of all humanity (plus RL thought parabiosis). Your life is a perfectly middling affair, 
-wanting in creativity, careful thinking or effort. In short, we are all dust in the wind, but you are ... dustier. But you could become _more than you are_, if you join my in-group, learn the shibboleths, and take this pilgrimage with me.
+wanting in creativity, careful thinking or effort. In short, we are all dust in the wind, but you are ... dustier.
+
+But you could become _more than you are_, if you join my in-group, learn the shibboleths, and take this pilgrimage with me.
 
 ---
 
