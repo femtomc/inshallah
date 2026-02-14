@@ -224,6 +224,91 @@ def test_codex_reasoning_suppressed() -> None:
     assert "Planning" not in rendered
 
 
+def test_codex_function_call_is_normalized() -> None:
+    console, out = _console(force_terminal=False)
+    fmt = CodexFormatter(console)
+
+    _emit(
+        fmt,
+        {
+            "type": "item.started",
+            "item": {
+                "id": "item_fn",
+                "type": "function_call",
+                "name": "apply_patch",
+                "arguments": '{"path":"src/main.py"}',
+            },
+        },
+    )
+    _emit(
+        fmt,
+        {
+            "type": "item.completed",
+            "item": {
+                "id": "item_fn",
+                "type": "function_call",
+                "status": "completed",
+            },
+        },
+    )
+
+    rendered = out.getvalue()
+    assert "edit src/main.py" in rendered
+
+
+def test_codex_multiline_shell_is_compact() -> None:
+    console, out = _console(force_terminal=False)
+    fmt = CodexFormatter(console)
+
+    _emit(
+        fmt,
+        {
+            "type": "item.started",
+            "item": {
+                "id": "item_1",
+                "type": "command_execution",
+                "command": "/usr/bin/zsh -lc 'set -euo pipefail\\nROOT=abc\\ninshallah issues list --root abc'",
+            },
+        },
+    )
+    _emit(
+        fmt,
+        {
+            "type": "item.completed",
+            "item": {
+                "id": "item_1",
+                "type": "command_execution",
+                "exit_code": 0,
+                "status": "completed",
+            },
+        },
+    )
+
+    rendered = out.getvalue()
+    assert "ROOT=abc (+1 more lines)" in rendered
+
+
+def test_codex_user_prompt_is_shown() -> None:
+    console, out = _console(force_terminal=False)
+    fmt = CodexFormatter(console)
+
+    _emit(
+        fmt,
+        {
+            "type": "item.completed",
+            "item": {
+                "id": "item_prompt",
+                "type": "message",
+                "role": "user",
+                "text": "Please fix the parser.",
+            },
+        },
+    )
+
+    rendered = out.getvalue()
+    assert "prompt: Please fix the parser." in rendered
+
+
 # -- OpenCode --
 
 
@@ -593,7 +678,7 @@ def test_gemini_tool_and_summary() -> None:
     rendered = out.getvalue()
     assert "bash echo hi" in rendered
     assert "Applied Gemini backend updates." in rendered
-    assert "success 1.2s tokens=42" in rendered
+    assert "stats status=success duration=1.2s tokens=42" in rendered
     assert "\x1b[" not in rendered
     assert not re.search(r"[╭╮╰╯│─]", rendered)
 
@@ -803,7 +888,8 @@ def test_edit_tool_styled_magenta_interactive() -> None:
     _emit(fmt, {"type": "tool_result", "is_error": False})
 
     rendered = out.getvalue()
-    assert "edit src/main.py" in rendered
+    plain = re.sub(r"\x1b\[[0-9;]*m", "", rendered)
+    assert "edit src/main.py" in plain
     # Non-interactive assertion not needed; just verify it renders
 
 

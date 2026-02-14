@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Callable
 
 from rich.console import Console
+from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
@@ -639,8 +640,9 @@ def cmd_run(args: argparse.Namespace, console: Console) -> int:
     if not args.json:
         console.print(
             Panel(
-                f"[bold]{root_issue['id']}[/bold] - {prompt_text[:80]}",
+                Markdown(prompt_text),
                 title="Root Issue",
+                subtitle=root_issue["id"],
                 style="cyan",
                 expand=False,
             )

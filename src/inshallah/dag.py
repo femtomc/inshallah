@@ -8,6 +8,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from rich.console import Console
+from rich.markdown import Markdown
+from rich.text import Text
 
 from .backend import get_backend
 from .fmt import get_formatter
@@ -129,9 +131,19 @@ class DagRunner:
         """Run a backend against the issue. Returns (exit_code, elapsed_seconds)."""
         rendered = self._render_prompt(issue, prompt_path, root_id)
 
+        prompt_preview = rendered.split("## Inshallah Context", 1)[0].strip()
+        if prompt_preview:
+            if len(prompt_preview) > 320:
+                prompt_preview = prompt_preview[:317] + "..."
+
         self.console.print(
             f"  [dim]{cli} {model} reasoning={reasoning}[/dim]"
         )
+        if self.console.is_terminal and not self.console.is_dumb_terminal:
+            self.console.print(Text("  prompt", style="bold cyan"))
+            self.console.print(Markdown(prompt_preview))
+        else:
+            self.console.print(f"  prompt: {prompt_preview}", markup=False)
         backend = get_backend(cli)
         formatter = get_formatter(cli, self.console)
 

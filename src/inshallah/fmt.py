@@ -9,6 +9,7 @@ import json
 import re
 
 from rich.console import Console
+from rich.markdown import Markdown
 from rich.text import Text
 
 _SHELL_WRAP_RE = re.compile(r"^/\S+\s+-lc\s+(.+)$", re.DOTALL)
@@ -16,14 +17,14 @@ _CD_PREFIX_RE = re.compile(r"^cd\s+\S+\s*&&\s*")
 
 # Canonical tool name mapping per backend.
 _TOOL_ALIASES: dict[str, str] = {
-    # Claude (PascalCase → lowercase)
-    "Read": "read",
-    "Write": "write",
-    "Edit": "edit",
-    "Bash": "bash",
-    "Glob": "glob",
-    "Grep": "grep",
-    "Task": "task",
+    # Claude / generic
+    "read": "read",
+    "write": "write",
+    "edit": "edit",
+    "bash": "bash",
+    "glob": "glob",
+    "grep": "grep",
+    "task": "task",
     # Gemini
     "read_file": "read",
     "write_file": "write",
@@ -32,20 +33,38 @@ _TOOL_ALIASES: dict[str, str] = {
     "search_file_content": "grep",
     # Pi
     "find": "glob",
+    # Local function tools
+    "exec_command": "bash",
+    "write_stdin": "bash",
+    "parallel": "task",
+    "apply_patch": "edit",
+    "image_query": "search",
+    "search_query": "search",
+    "open": "read",
+    "click": "read",
+    "screenshot": "read",
 }
 
 # Category → (tools, ok_style)
 _TOOL_STYLES: dict[str, tuple[set[str], str]] = {
     "mutate": ({"edit", "write"}, "magenta"),
-    "observe": ({"read", "glob", "grep"}, "blue"),
-    "execute": ({"bash"}, "dim"),
+    "observe": ({"read", "glob", "grep", "search"}, "blue"),
+    "execute": ({"bash"}, "yellow"),
     "delegate": ({"task"}, "cyan"),
 }
 
 
 def _normalize_tool(raw_name: str) -> str:
     """Map backend-specific tool name to a canonical lowercase name."""
-    return _TOOL_ALIASES.get(raw_name, raw_name)
+    if not raw_name:
+        return "tool"
+    name = raw_name.strip()
+    if "." in name:
+        name = name.rsplit(".", 1)[-1]
+    if name.startswith("mcp__"):
+        return "task"
+    name = name.lower()
+    return _TOOL_ALIASES.get(name, name)
 
 
 def _tool_style(canonical_name: str, *, ok: bool) -> str:
@@ -71,6 +90,35 @@ def _strip_shell(cmd: str) -> str:
     return _CD_PREFIX_RE.sub("", cmd)
 
 
+def _parse_json_object(raw: object) -> dict:
+    if isinstance(raw, dict):
+        return raw
+    if isinstance(raw, str) and raw.strip():
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            return {}
+        if isinstance(parsed, dict):
+            return parsed
+    return {}
+
+
+def _summarize_shell(cmd: str, max_len: int = 80) -> str:
+    raw = _strip_shell(cmd).strip()
+    raw = raw.replace("\\n", "\n")
+    if not raw:
+        return ""
+    lines = [ln.strip() for ln in raw.splitlines() if ln.strip()]
+    if lines and lines[0].startswith("set -euo pipefail"):
+        lines = lines[1:]
+    if not lines:
+        lines = [raw.replace("\n", " ").strip()]
+    head = lines[0]
+    if len(lines) > 1:
+        head = f"{head} (+{len(lines) - 1} more lines)"
+    return _truncate(head, max_len)
+
+
 def _truncate(s: str, n: int = 100) -> str:
     return s[: n - 3] + "..." if len(s) > n else s
 
@@ -83,6 +131,10 @@ def _message_text(item: dict) -> str:
     text = item.get("text")
     if isinstance(text, str) and text:
         return text
+
+    output_text = item.get("output_text")
+    if isinstance(output_text, str) and output_text:
+        return output_text
 
     content = item.get("content")
     if isinstance(content, str):
@@ -104,7 +156,15 @@ def _message_text(item: dict) -> str:
             pcontent = part.get("content")
             if isinstance(pcontent, str) and pcontent:
                 parts.append(pcontent)
+                continue
+            pout = part.get("output_text")
+            if isinstance(pout, str) and pout:
+                parts.append(pout)
         return "\n".join(parts)
+
+    message = item.get("message")
+    if isinstance(message, dict):
+        return _message_text(message)
 
     return ""
 
@@ -116,6 +176,7 @@ class _BaseFormatter:
         self.interactive = _is_interactive(self.console)
         self._summary_parts: list[str] = []
         self._pending_tool: tuple[str, str] | None = None  # (name, detail)
+        self._stats: dict[str, str] = {}
 
     @staticmethod
     def _extract_detail(canonical_name: str, params: dict) -> str:
@@ -136,7 +197,7 @@ class _BaseFormatter:
             for key in ("command", "cmd"):
                 v = params.get(key)
                 if isinstance(v, str) and v:
-                    return _truncate(_strip_shell(v), 80)
+                    return _summarize_shell(v, 80)
         elif canonical_name == "task":
             v = params.get("description")
             if isinstance(v, str) and v:
@@ -153,9 +214,16 @@ class _BaseFormatter:
         line = f"  {prefix} {name}"
         if detail:
             line += f" {detail}"
-        style = _tool_style(name, ok=ok)
         if self.interactive:
-            self.console.print(Text(line, style=style))
+            tool_style = _tool_style(name, ok=ok)
+            text = Text("  ")
+            text.append(prefix, style="green" if ok else "red")
+            text.append(" ")
+            text.append(name, style=f"{tool_style} bold")
+            if detail:
+                text.append(" ")
+                text.append(detail, style="dim" if ok else "red")
+            self.console.print(text)
         else:
             self.console.print(line, markup=False)
 
@@ -191,6 +259,36 @@ class _BaseFormatter:
         else:
             self.console.print(f"  {msg}", markup=False)
 
+    def _set_stat(self, key: str, value: object) -> None:
+        if value is None:
+            return
+        if isinstance(value, float):
+            if key in ("duration", "cost"):
+                text = f"{value:.1f}" if key == "duration" else f"{value:.4f}"
+            else:
+                text = str(value)
+        else:
+            text = str(value)
+        if text:
+            self._stats[key] = text
+
+    def _print_stats(self) -> None:
+        if not self._stats:
+            return
+        ordered = []
+        for key in ("status", "duration", "cost", "tokens"):
+            if key in self._stats:
+                value = self._stats[key]
+                if key == "duration":
+                    ordered.append(f"duration={value}s")
+                elif key == "cost":
+                    ordered.append(f"cost=${value}")
+                else:
+                    ordered.append(f"{key}={value}")
+        extras = [f"{k}={v}" for k, v in self._stats.items() if k not in {"status", "duration", "cost", "tokens"}]
+        ordered.extend(extras)
+        self._info("stats " + " ".join(ordered))
+
     def _accumulate(self, text: str) -> None:
         """Buffer assistant text for final summary."""
         if text:
@@ -203,9 +301,20 @@ class _BaseFormatter:
             return
         self.console.print()
         if self.interactive:
-            self.console.print(Text(text))
+            self.console.print(Text("agent", style="bold green"))
+            self.console.print(Markdown(text))
         else:
             self.console.print(text, markup=False)
+
+    def _print_prompt(self, text: str) -> None:
+        if not text:
+            return
+        if self.interactive:
+            self.console.print()
+            self.console.print(Text("prompt", style="bold cyan"))
+            self.console.print(Markdown(text))
+        else:
+            self.console.print(f"prompt: {text}", markup=False)
 
 
 class ClaudeFormatter(_BaseFormatter):
@@ -292,13 +401,10 @@ class ClaudeFormatter(_BaseFormatter):
         elif etype == "result":
             cost = event.get("cost_usd")
             duration = event.get("duration_ms")
-            parts = []
-            if cost is not None:
-                parts.append(f"${cost:.4f}")
-            if duration is not None:
-                parts.append(f"{duration / 1000:.1f}s")
-            if parts:
-                self._info(" ".join(parts))
+            if isinstance(duration, (int, float)):
+                self._set_stat("duration", duration / 1000.0)
+            if isinstance(cost, (int, float)):
+                self._set_stat("cost", float(cost))
 
         elif etype == "tool_use":
             self._thinking = False
@@ -321,6 +427,7 @@ class ClaudeFormatter(_BaseFormatter):
 
     def finish(self) -> None:
         self._flush_pending()
+        self._print_stats()
         self._print_summary()
 
 
@@ -329,6 +436,92 @@ class CodexFormatter(_BaseFormatter):
 
     def __init__(self, console: Console | None = None) -> None:
         super().__init__("codex", console)
+        self._pending_by_id: dict[str, tuple[str, str]] = {}
+
+    @staticmethod
+    def _is_tool_item_type(item_type: str) -> bool:
+        return item_type in {
+            "command_execution",
+            "tool_call",
+            "function_call",
+            "web_search_call",
+            "file_search_call",
+            "computer_call",
+            "mcp_call",
+        }
+
+    def _codex_tool(self, item: dict) -> tuple[str, str] | None:
+        item_type = item.get("type", "")
+        if not isinstance(item_type, str):
+            return None
+
+        if item_type == "command_execution":
+            cmd = item.get("command", "")
+            if not isinstance(cmd, str):
+                cmd = ""
+            return "bash", _summarize_shell(cmd, 120)
+
+        if not self._is_tool_item_type(item_type):
+            return None
+
+        raw_name = ""
+        for key in ("tool_name", "tool", "name"):
+            value = item.get(key)
+            if isinstance(value, str) and value:
+                raw_name = value
+                break
+        if not raw_name:
+            raw_name = item_type.removesuffix("_call")
+        canonical = _normalize_tool(raw_name)
+
+        params: dict = {}
+        for key in ("input", "parameters", "args", "arguments"):
+            parsed = _parse_json_object(item.get(key))
+            if parsed:
+                params = parsed
+                break
+
+        detail = self._extract_detail(canonical, params)
+        if not detail:
+            for key in ("query", "prompt", "path"):
+                value = item.get(key)
+                if isinstance(value, str) and value:
+                    detail = _truncate(value, 100)
+                    break
+
+        return canonical, detail
+
+    def _buffer_tool_item(self, item: dict) -> None:
+        tool = self._codex_tool(item)
+        if tool is None:
+            return
+        item_id = item.get("id")
+        if isinstance(item_id, str) and item_id:
+            self._pending_by_id[item_id] = tool
+            return
+        name, detail = tool
+        self._buffer_tool(name, detail)
+
+    def _resolve_tool_item(self, item: dict) -> None:
+        ok = True
+        exit_code = item.get("exit_code")
+        if isinstance(exit_code, int):
+            ok = exit_code == 0
+        status = item.get("status")
+        if isinstance(status, str):
+            status_text = status.lower()
+            if status_text in {"error", "failed", "aborted"}:
+                ok = False
+            elif status_text in {"success", "completed", "ok"} and exit_code is None:
+                ok = True
+
+        item_id = item.get("id")
+        if isinstance(item_id, str) and item_id and item_id in self._pending_by_id:
+            name, detail = self._pending_by_id.pop(item_id)
+            self._tool(name, detail, ok=ok)
+            return
+
+        self._resolve_tool(ok=ok)
 
     def process_line(self, line: str) -> None:
         if not line.strip():
@@ -339,27 +532,53 @@ class CodexFormatter(_BaseFormatter):
             return
 
         etype = event.get("type", "")
-        item = event.get("item", {})
+        raw_item = event.get("item", {})
+        item = raw_item if isinstance(raw_item, dict) else {}
         item_type = item.get("type", "")
 
-        if etype == "item.started" and item_type == "command_execution":
-            cmd = _strip_shell(item.get("command", ""))
-            self._buffer_tool("bash", _truncate(cmd, 120))
+        if etype == "item.started" and isinstance(item, dict):
+            if self._is_tool_item_type(item_type):
+                self._buffer_tool_item(item)
 
         elif etype == "item.completed":
-            if item_type == "command_execution":
-                exit_code = item.get("exit_code")
-                self._resolve_tool(ok=(exit_code == 0))
-            elif item_type in ("message", "agent_message"):
+            if not isinstance(item, dict):
+                return
+            if self._is_tool_item_type(item_type):
+                self._resolve_tool_item(item)
+            elif item_type in ("message", "agent_message", "assistant_message"):
                 content = _message_text(item)
                 if content:
-                    self._accumulate(content)
+                    role = item.get("role")
+                    if role == "user":
+                        self._print_prompt(content)
+                    else:
+                        self._accumulate(content)
+            elif item_type == "usage":
+                usage = item.get("usage")
+                if isinstance(usage, dict):
+                    total = usage.get("total_tokens")
+                    if isinstance(total, int):
+                        self._set_stat("tokens", total)
+
+        elif etype == "response.completed":
+            usage = event.get("usage")
+            if isinstance(usage, dict):
+                total = usage.get("total_tokens")
+                if isinstance(total, int):
+                    self._set_stat("tokens", total)
+            status = event.get("status")
+            if isinstance(status, str) and status:
+                self._set_stat("status", status)
 
         elif etype == "error":
             self._error(event.get("error", str(event)))
 
     def finish(self) -> None:
+        for name, detail in self._pending_by_id.values():
+            self._tool(name, detail, ok=True)
+        self._pending_by_id.clear()
         self._flush_pending()
+        self._print_stats()
         self._print_summary()
 
 
@@ -414,6 +633,7 @@ class OpenCodeFormatter(_BaseFormatter):
             self._error(msg)
 
     def finish(self) -> None:
+        self._print_stats()
         self._print_summary()
 
 
@@ -456,16 +676,15 @@ class GeminiFormatter(_BaseFormatter):
             status = event.get("status")
             if not isinstance(status, str):
                 status = "unknown"
-            parts = [status]
+            self._set_stat("status", status)
             duration = event.get("duration_ms")
             if isinstance(duration, (int, float)):
-                parts.append(f"{duration / 1000:.1f}s")
+                self._set_stat("duration", duration / 1000.0)
             usage = event.get("usage")
             if isinstance(usage, dict):
                 total_tokens = usage.get("totalTokens")
                 if isinstance(total_tokens, int):
-                    parts.append(f"tokens={total_tokens}")
-            self._info(" ".join(parts))
+                    self._set_stat("tokens", total_tokens)
 
         elif etype == "error":
             err = event.get("error")
@@ -479,6 +698,7 @@ class GeminiFormatter(_BaseFormatter):
 
     def finish(self) -> None:
         self._flush_pending()
+        self._print_stats()
         self._print_summary()
 
 
@@ -544,6 +764,7 @@ class PiFormatter(_BaseFormatter):
 
     def finish(self) -> None:
         self._flush_pending()
+        self._print_stats()
         self._print_summary()
 
 
