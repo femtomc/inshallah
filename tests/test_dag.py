@@ -52,11 +52,11 @@ class TestThreeTierResolution:
             # Run one step — will pick up the issue
             runner.run(issue["id"], max_steps=1)
 
-            mock_backend.assert_called_with("claude")
+            mock_backend.assert_called_with("codex")
             mock_proc.run.assert_called_once()
             call_args = mock_proc.run.call_args
-            assert call_args[0][1] == "opus"  # model
-            assert call_args[0][2] == "high"  # reasoning
+            assert call_args[0][1] == "gpt-5.3-codex"  # model
+            assert call_args[0][2] == "xhigh"  # reasoning
 
     def test_orchestrator_overrides_fallbacks(self, tmp_path: Path) -> None:
         """Orchestrator frontmatter overrides hardcoded fallbacks."""

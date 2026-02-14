@@ -49,7 +49,7 @@ def test_multiple_roles_sorted(tmp_path: Path, capsys) -> None:
     roles_dir = tmp_path / ".inshallah" / "roles"
     roles_dir.mkdir()
     (roles_dir / "worker.md").write_text("---\ncli: codex\n---\nWorker.\n")
-    (roles_dir / "analyst.md").write_text("---\ncli: claude\nmodel: opus\n---\nAnalyst.\n")
+    (roles_dir / "analyst.md").write_text("---\ncli: codex\nmodel: gpt-5.3-codex\n---\nAnalyst.\n")
     with patch("inshallah.cli._find_repo_root", return_value=tmp_path):
         rc = cmd_roles([], None)
     assert rc == 0

@@ -226,9 +226,9 @@ def cmd_init(console: Console) -> int:
         reviewer.write_text(
             "---\n"
             "description: Independently verify completed work and either approve or decompose into targeted refinements.\n"
-            "cli: claude\n"
-            "model: opus\n"
-            "reasoning: high\n"
+            "cli: codex\n"
+            "model: gpt-5.3-codex\n"
+            "reasoning: xhigh\n"
             "---\n\n"
             "You are a code reviewer evaluating whether a completed issue was properly\n"
             "implemented.\n\n"

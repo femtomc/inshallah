@@ -26,9 +26,9 @@ class DagResult:
 
 class DagRunner:
     # Hardcoded fallbacks if neither execution_spec nor orchestrator.md provide config
-    _FALLBACK_CLI = "claude"
-    _FALLBACK_MODEL = "opus"
-    _FALLBACK_REASONING = "high"
+    _FALLBACK_CLI = "codex"
+    _FALLBACK_MODEL = "gpt-5.3-codex"
+    _FALLBACK_REASONING = "xhigh"
 
     def __init__(
         self,

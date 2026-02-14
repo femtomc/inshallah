@@ -214,6 +214,12 @@ class ClaudeFormatter(_BaseFormatter):
     def __init__(self, console: Console | None = None) -> None:
         super().__init__("claude", console)
         self._thinking = False
+        # Track active content block from stream_event for tool_use detection
+        self._active_block_type: str | None = None
+        self._active_tool_name: str | None = None
+        self._active_tool_json_parts: list[str] = []
+        # Track tool names already emitted via stream events to avoid duplicates
+        self._stream_tool_ids: set[str] = set()
 
     def _handle_stream_event(self, event: dict) -> None:
         """Handle stream_event (from --include-partial-messages)."""
@@ -224,12 +230,44 @@ class ClaudeFormatter(_BaseFormatter):
 
         if inner_type == "content_block_start":
             block = inner.get("content_block", {})
-            if isinstance(block, dict) and block.get("type") == "thinking":
+            if not isinstance(block, dict):
+                return
+            btype = block.get("type", "")
+            self._active_block_type = btype
+            if btype == "thinking":
                 if not self._thinking:
                     self._thinking = True
                     self._info("thinking...")
+            elif btype == "tool_use":
+                tool_id = block.get("id", "")
+                self._active_tool_name = block.get("name", "?")
+                self._active_tool_json_parts = []
+                if tool_id:
+                    self._stream_tool_ids.add(tool_id)
+
+        elif inner_type == "content_block_delta":
+            delta = inner.get("delta", {})
+            if isinstance(delta, dict) and delta.get("type") == "input_json_delta":
+                part = delta.get("partial_json", "")
+                if isinstance(part, str) and part:
+                    self._active_tool_json_parts.append(part)
+
         elif inner_type == "content_block_stop":
+            if self._active_block_type == "tool_use" and self._active_tool_name:
+                canonical = _normalize_tool(self._active_tool_name)
+                inp: dict = {}
+                raw_json = "".join(self._active_tool_json_parts)
+                if raw_json:
+                    try:
+                        inp = json.loads(raw_json)
+                    except json.JSONDecodeError:
+                        pass
+                detail = self._extract_detail(canonical, inp)
+                self._buffer_tool(canonical, detail)
             self._thinking = False
+            self._active_block_type = None
+            self._active_tool_name = None
+            self._active_tool_json_parts = []
 
     def process_line(self, line: str) -> None:
         if not line.strip():
@@ -246,7 +284,10 @@ class ClaudeFormatter(_BaseFormatter):
 
         elif etype == "assistant":
             self._thinking = False
-            self._accumulate(event.get("message", ""))
+            # Replace (not append) to avoid duplicates from partial assistant events
+            msg = event.get("message", "")
+            if isinstance(msg, str) and msg.strip():
+                self._summary_parts = [msg]
 
         elif etype == "result":
             cost = event.get("cost_usd")
@@ -261,6 +302,10 @@ class ClaudeFormatter(_BaseFormatter):
 
         elif etype == "tool_use":
             self._thinking = False
+            # Skip if already emitted from stream_event
+            tool_id = event.get("tool_use_id", "")
+            if tool_id and tool_id in self._stream_tool_ids:
+                return
             raw = event.get("tool", event.get("name", "?"))
             canonical = _normalize_tool(raw)
             inp = event.get("input", {})
