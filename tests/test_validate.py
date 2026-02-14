@@ -143,6 +143,83 @@ class TestValidateExpanded:
         assert v.reason == "all work completed"
 
 
+class TestCollapsible:
+    """Tests for IssueStore.collapsible() — bottom-up collapse detection."""
+
+    def test_collapsible_basic(self, tmp_path: Path) -> None:
+        """Expanded root with all children success → returns root."""
+        store = _store(tmp_path)
+        root = store.create("root", tags=["node:agent", "node:root"])
+        c1 = store.create("child 1", tags=["node:agent"])
+        c2 = store.create("child 2", tags=["node:agent"])
+        store.add_dep(c1["id"], "parent", root["id"])
+        store.add_dep(c2["id"], "parent", root["id"])
+        store.close(root["id"], outcome="expanded")
+        store.close(c1["id"], outcome="success")
+        store.close(c2["id"], outcome="success")
+
+        result = store.collapsible(root["id"])
+        assert len(result) == 1
+        assert result[0]["id"] == root["id"]
+
+    def test_collapsible_children_still_open(self, tmp_path: Path) -> None:
+        """Expanded root with an open child → empty."""
+        store = _store(tmp_path)
+        root = store.create("root", tags=["node:agent", "node:root"])
+        c1 = store.create("child 1", tags=["node:agent"])
+        c2 = store.create("child 2", tags=["node:agent"])
+        store.add_dep(c1["id"], "parent", root["id"])
+        store.add_dep(c2["id"], "parent", root["id"])
+        store.close(root["id"], outcome="expanded")
+        store.close(c1["id"], outcome="success")
+        # c2 still open
+
+        result = store.collapsible(root["id"])
+        assert result == []
+
+    def test_collapsible_nested_bottom_up(self, tmp_path: Path) -> None:
+        """Nested expansion → only inner node returned (outer has expanded child)."""
+        store = _store(tmp_path)
+        root = store.create("root", tags=["node:agent", "node:root"])
+        child = store.create("child", tags=["node:agent"])
+        gc1 = store.create("gc1", tags=["node:agent"])
+        gc2 = store.create("gc2", tags=["node:agent"])
+        store.add_dep(child["id"], "parent", root["id"])
+        store.add_dep(gc1["id"], "parent", child["id"])
+        store.add_dep(gc2["id"], "parent", child["id"])
+        store.close(root["id"], outcome="expanded")
+        store.close(child["id"], outcome="expanded")
+        store.close(gc1["id"], outcome="success")
+        store.close(gc2["id"], outcome="success")
+
+        result = store.collapsible(root["id"])
+        # Only child is collapsible — root's child is still "expanded"
+        assert len(result) == 1
+        assert result[0]["id"] == child["id"]
+
+    def test_collapsible_not_in_subtree(self, tmp_path: Path) -> None:
+        """Expanded node outside root's subtree → excluded."""
+        store = _store(tmp_path)
+        root = store.create("root", tags=["node:agent", "node:root"])
+        other = store.create("other", tags=["node:agent"])
+        other_child = store.create("other child", tags=["node:agent"])
+        store.add_dep(other_child["id"], "parent", other["id"])
+        store.close(other["id"], outcome="expanded")
+        store.close(other_child["id"], outcome="success")
+
+        result = store.collapsible(root["id"])
+        assert result == []
+
+    def test_collapsible_no_children(self, tmp_path: Path) -> None:
+        """Expanded node with no children → excluded."""
+        store = _store(tmp_path)
+        root = store.create("root", tags=["node:agent", "node:root"])
+        store.close(root["id"], outcome="expanded")
+
+        result = store.collapsible(root["id"])
+        assert result == []
+
+
 class TestValidateRootStillOpen:
     """When root is open and all descendants are closed, signal readiness."""
 

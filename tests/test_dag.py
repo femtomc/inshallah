@@ -396,3 +396,215 @@ class TestReviewPhase:
         assert len(review_msgs) == 1
         body = json.loads(review_msgs[0]["body"])
         assert body["type"] == "review"
+
+
+class TestCollapseReview:
+    """Test the collapse review feature: aggregate review on subtree completion."""
+
+    def _setup_expanded(
+        self,
+        tmp_path: Path,
+        *,
+        has_reviewer: bool = True,
+    ) -> tuple[IssueStore, ForumStore, dict, list[dict]]:
+        """Create an expanded root with 2 success children."""
+        store, forum = _setup_stores(tmp_path)
+        _write_orchestrator(
+            tmp_path, "cli: claude\nmodel: opus\nreasoning: high\n", "{{PROMPT}}\n"
+        )
+        if has_reviewer:
+            _write_role(
+                tmp_path,
+                "reviewer",
+                "cli: claude\nmodel: opus\nreasoning: high\n",
+                "Review:\n{{PROMPT}}\n",
+            )
+
+        root = store.create("root task", tags=["node:agent", "node:root"])
+        c1 = store.create("child 1", tags=["node:agent"])
+        c2 = store.create("child 2", tags=["node:agent"])
+        store.add_dep(c1["id"], "parent", root["id"])
+        store.add_dep(c2["id"], "parent", root["id"])
+
+        # Simulate: root was expanded, both children succeeded
+        store.close(root["id"], outcome="expanded")
+        store.close(c1["id"], outcome="success")
+        store.close(c2["id"], outcome="success")
+
+        return store, forum, root, [c1, c2]
+
+    def test_collapse_review_fires(self, tmp_path: Path) -> None:
+        """Expanded root + 2 success children → collapse review fires, outcome → success."""
+        store, forum, root, _ = self._setup_expanded(tmp_path)
+        runner = DagRunner(store, forum, tmp_path)
+
+        with patch("inshallah.dag.get_backend") as mock_backend, \
+             patch("inshallah.dag.get_formatter") as mock_formatter:
+            mock_proc = MagicMock()
+            mock_proc.run.return_value = 0
+            mock_backend.return_value = mock_proc
+            mock_formatter.return_value = MagicMock()
+
+            result = runner.run(root["id"], max_steps=3)
+
+        # Backend called once for collapse review
+        assert mock_proc.run.call_count == 1
+        # Root outcome promoted to success
+        updated = store.get(root["id"])
+        assert updated is not None
+        assert updated["outcome"] == "success"
+        assert result.status == "root_final"
+
+    def test_collapse_review_skipped_without_reviewer(self, tmp_path: Path) -> None:
+        """No reviewer.md → no collapse review, DAG terminates normally."""
+        store, forum, root, _ = self._setup_expanded(
+            tmp_path, has_reviewer=False
+        )
+        runner = DagRunner(store, forum, tmp_path)
+
+        with patch("inshallah.dag.get_backend") as mock_backend, \
+             patch("inshallah.dag.get_formatter") as mock_formatter:
+            mock_proc = MagicMock()
+            mock_proc.run.return_value = 0
+            mock_backend.return_value = mock_proc
+            mock_formatter.return_value = MagicMock()
+
+            result = runner.run(root["id"], max_steps=3)
+
+        # No backend calls — DAG sees "all work completed" immediately
+        assert mock_proc.run.call_count == 0
+        assert result.status == "root_final"
+
+    def test_collapse_review_skipped_review_false(self, tmp_path: Path) -> None:
+        """review=False → no collapse review."""
+        store, forum, root, _ = self._setup_expanded(tmp_path)
+        runner = DagRunner(store, forum, tmp_path)
+
+        with patch("inshallah.dag.get_backend") as mock_backend, \
+             patch("inshallah.dag.get_formatter") as mock_formatter:
+            mock_proc = MagicMock()
+            mock_proc.run.return_value = 0
+            mock_backend.return_value = mock_proc
+            mock_formatter.return_value = MagicMock()
+
+            result = runner.run(root["id"], max_steps=3, review=False)
+
+        assert mock_proc.run.call_count == 0
+        assert result.status == "root_final"
+
+    def test_collapse_review_creates_remediation(self, tmp_path: Path) -> None:
+        """Reviewer creates new child → outcome stays expanded, loop continues."""
+        store, forum, root, _ = self._setup_expanded(tmp_path)
+        runner = DagRunner(store, forum, tmp_path)
+        root_id = root["id"]
+
+        call_count = [0]
+        remediation_id: list[str] = []
+
+        def backend_side_effect(prompt, model, reasoning, cwd, **kwargs):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                # Collapse reviewer creates a remediation child
+                remediation = store.create(
+                    "Fix gap", tags=["node:agent"]
+                )
+                store.add_dep(remediation["id"], "parent", root_id)
+                remediation_id.append(remediation["id"])
+            elif call_count[0] == 2:
+                # Worker closes the remediation issue directly
+                store.close(remediation_id[0], outcome="success")
+            # call_count[0] == 3: second collapse review — no new children
+            return 0
+
+        with patch("inshallah.dag.get_backend") as mock_backend, \
+             patch("inshallah.dag.get_formatter") as mock_formatter:
+            mock_proc = MagicMock()
+            mock_proc.run.side_effect = backend_side_effect
+            mock_backend.return_value = mock_proc
+            mock_formatter.return_value = MagicMock()
+
+            result = runner.run(root_id, max_steps=5)
+
+        # call 1: collapse review (creates remediation)
+        # call 2: worker on remediation
+        # call 3: per-issue review on remediation (reviewer.md exists)
+        # call 4: second collapse review (passes)
+        assert call_count[0] == 4
+        updated = store.get(root_id)
+        assert updated is not None
+        assert updated["outcome"] == "success"
+        assert result.status == "root_final"
+
+    def test_collapse_review_logged_to_forum(self, tmp_path: Path) -> None:
+        """Forum entry with type=collapse-review, author=reviewer."""
+        store, forum, root, _ = self._setup_expanded(tmp_path)
+        runner = DagRunner(store, forum, tmp_path)
+
+        with patch("inshallah.dag.get_backend") as mock_backend, \
+             patch("inshallah.dag.get_formatter") as mock_formatter:
+            mock_proc = MagicMock()
+            mock_proc.run.return_value = 0
+            mock_backend.return_value = mock_proc
+            mock_formatter.return_value = MagicMock()
+
+            runner.run(root["id"], max_steps=3)
+
+        messages = forum.read(f"issue:{root['id']}")
+        collapse_msgs = [
+            m for m in messages if m.get("author") == "reviewer"
+        ]
+        assert len(collapse_msgs) == 1
+        body = json.loads(collapse_msgs[0]["body"])
+        assert body["type"] == "collapse-review"
+
+    def test_nested_collapse_bottom_up(self, tmp_path: Path) -> None:
+        """Two-level expansion → inner reviewed before outer."""
+        store, forum = _setup_stores(tmp_path)
+        _write_orchestrator(
+            tmp_path, "cli: claude\nmodel: opus\nreasoning: high\n", "{{PROMPT}}\n"
+        )
+        _write_role(
+            tmp_path,
+            "reviewer",
+            "cli: claude\nmodel: opus\nreasoning: high\n",
+            "Review:\n{{PROMPT}}\n",
+        )
+
+        root = store.create("root", tags=["node:agent", "node:root"])
+        child = store.create("child", tags=["node:agent"])
+        gc1 = store.create("gc1", tags=["node:agent"])
+        gc2 = store.create("gc2", tags=["node:agent"])
+        store.add_dep(child["id"], "parent", root["id"])
+        store.add_dep(gc1["id"], "parent", child["id"])
+        store.add_dep(gc2["id"], "parent", child["id"])
+        store.close(root["id"], outcome="expanded")
+        store.close(child["id"], outcome="expanded")
+        store.close(gc1["id"], outcome="success")
+        store.close(gc2["id"], outcome="success")
+
+        runner = DagRunner(store, forum, tmp_path)
+        reviewed_ids: list[str] = []
+
+        def backend_side_effect(prompt, model, reasoning, cwd, **kwargs):
+            # Track which issue is being collapse-reviewed via Assigned issue line
+            for line in prompt.splitlines():
+                if line.startswith("Assigned issue:"):
+                    issue_id = line.split(":", 1)[1].strip()
+                    reviewed_ids.append(issue_id)
+                    break
+            return 0
+
+        with patch("inshallah.dag.get_backend") as mock_backend, \
+             patch("inshallah.dag.get_formatter") as mock_formatter:
+            mock_proc = MagicMock()
+            mock_proc.run.side_effect = backend_side_effect
+            mock_backend.return_value = mock_proc
+            mock_formatter.return_value = MagicMock()
+
+            result = runner.run(root["id"], max_steps=5)
+
+        # Inner (child) reviewed first, then outer (root)
+        assert len(reviewed_ids) == 2
+        assert reviewed_ids[0] == child["id"]
+        assert reviewed_ids[1] == root["id"]
+        assert result.status == "root_final"

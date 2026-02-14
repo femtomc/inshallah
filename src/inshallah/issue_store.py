@@ -232,6 +232,51 @@ class IssueStore:
         result.sort(key=lambda row: row.get("priority", 3))
         return result
 
+    def collapsible(self, root_id: str) -> list[dict]:
+        """Return expanded issues whose children are all terminally closed.
+
+        A node is collapsible when:
+        - It is in the subtree rooted at *root_id*
+        - Its status is ``closed`` with outcome ``expanded``
+        - It has at least one child
+        - Every direct child is ``closed`` with a terminal outcome
+          (``success``, ``failure``, or ``skipped`` — NOT ``expanded``)
+
+        Bottom-up ordering is enforced by the terminal-children constraint:
+        a parent can't be collapsible while any child is still expanded.
+        """
+        rows = self._load()
+        by_id = {row["id"]: row for row in rows}
+        ids_in_scope = set(self.subtree_ids(root_id))
+
+        # Build parent→children mapping
+        children_of: dict[str, list[dict]] = {}
+        for row in rows:
+            for dep in row.get("deps", []):
+                if dep["type"] == "parent":
+                    children_of.setdefault(dep["target"], []).append(row)
+
+        terminal_outcomes = {"success", "failure", "skipped"}
+        result: list[dict] = []
+
+        for issue_id in ids_in_scope:
+            node = by_id.get(issue_id)
+            if node is None:
+                continue
+            if node["status"] != "closed" or node.get("outcome") != "expanded":
+                continue
+            kids = children_of.get(issue_id, [])
+            if not kids:
+                continue
+            if all(
+                kid["status"] == "closed"
+                and kid.get("outcome") in terminal_outcomes
+                for kid in kids
+            ):
+                result.append(node)
+
+        return result
+
     def validate(self, root_id: str) -> ValidationResult:
         """Check if the DAG rooted at root_id is complete.
 

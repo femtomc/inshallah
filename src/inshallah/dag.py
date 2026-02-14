@@ -242,6 +242,99 @@ class DagRunner:
         return self.store.get(issue_id) or issue
 
     # ------------------------------------------------------------------
+    # Collapse review helpers
+    # ------------------------------------------------------------------
+
+    def _collapse_review(
+        self, issue: dict, root_id: str, step: int
+    ) -> None:
+        """Run a collapse review on an expanded node whose children are all done."""
+        issue_id = issue["id"]
+
+        self._phase_header(
+            "Collapse Review",
+            subtitle=f"{issue_id} {issue['title']}",
+            style="magenta",
+        )
+
+        # Build children summary
+        kids = self.store.children(issue_id)
+        lines = []
+        for kid in kids:
+            lines.append(
+                f"- [{kid.get('outcome', '?')}] {kid['id']}: {kid['title']}"
+            )
+        children_summary = "\n".join(lines)
+
+        # Build prompt body: original spec + children summary + instructions
+        original_body = issue.get("body") or ""
+        collapse_prompt = (
+            f"# Collapse Review\n\n"
+            f"## Original Specification\n\n"
+            f"**{issue['title']}**\n\n"
+            f"{original_body}\n\n"
+            f"## Children Outcomes\n\n"
+            f"{children_summary}\n\n"
+            f"## Instructions\n\n"
+            f"All children of this issue have completed. Review whether their "
+            f"aggregate work satisfies the original specification above.\n\n"
+            f"If satisfied: no action needed (the issue will be marked successful).\n\n"
+            f"If NOT satisfied: create new child issues under {issue_id} to "
+            f"address the gaps. Use `inshallah close {issue_id} --outcome expanded` "
+            f"is already set — just create the missing children.\n"
+        )
+
+        # Route through reviewer role (cli/model/reasoning from reviewer.md)
+        review_issue = {
+            **issue,
+            "title": f"Collapse review: {issue['title']}",
+            "body": collapse_prompt,
+            "execution_spec": {"role": "reviewer"},
+        }
+
+        cli, model, reasoning, _ = self._resolve_config(review_issue)
+        exit_code, elapsed = self._execute_backend(
+            review_issue,
+            cli,
+            model,
+            reasoning,
+            None,  # no prompt template — body is the full prompt
+            root_id,
+            log_suffix="collapse-review",
+        )
+
+        # Log to forum
+        self.forum.post(
+            f"issue:{issue_id}",
+            json.dumps(
+                {
+                    "step": step,
+                    "issue_id": issue_id,
+                    "title": issue["title"],
+                    "exit_code": exit_code,
+                    "elapsed_s": round(elapsed, 1),
+                    "type": "collapse-review",
+                }
+            ),
+            author="reviewer",
+        )
+
+        # Check: did the reviewer create new children?
+        new_kids = self.store.children(issue_id)
+        open_kids = [k for k in new_kids if k["status"] != "closed"]
+        if not open_kids:
+            # All satisfied — promote to success
+            self.store.update(issue_id, outcome="success")
+            self.console.print(
+                f"  [green]Collapse review passed — {issue_id} → success[/green]"
+            )
+        else:
+            self.console.print(
+                f"  [yellow]Collapse review created {len(open_kids)} "
+                f"remediation issue(s) — loop continues[/yellow]"
+            )
+
+    # ------------------------------------------------------------------
     # Main loop
     # ------------------------------------------------------------------
 
@@ -249,7 +342,14 @@ class DagRunner:
         self, root_id: str, max_steps: int = 20, *, review: bool = True
     ) -> DagResult:
         for step in range(max_steps):
-            # 1. Check termination
+            # 1. Collapse review (before termination check)
+            if review and self._has_reviewer():
+                collapsible = self.store.collapsible(root_id)
+                if collapsible:
+                    self._collapse_review(collapsible[0], root_id, step + 1)
+                    continue
+
+            # 2. Check termination
             v = self.store.validate(root_id)
             if v.is_final:
                 self.console.print(
@@ -257,7 +357,7 @@ class DagRunner:
                 )
                 return DagResult("root_final", steps=step)
 
-            # 2. Select next ready leaf
+            # 3. Select next ready leaf
             candidates = self.store.ready(root_id, tags=["node:agent"])
             if not candidates:
                 self.console.print(
