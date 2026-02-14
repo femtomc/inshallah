@@ -791,7 +791,16 @@ def test_claude_summary_on_finish() -> None:
     console, out = _console(force_terminal=False)
     fmt = ClaudeFormatter(console)
 
-    _emit(fmt, {"type": "assistant", "message": "Working on it..."})
+    _emit(
+        fmt,
+        {
+            "type": "assistant",
+            "message": {
+                "role": "assistant",
+                "content": [{"type": "text", "text": "Working on it..."}],
+            },
+        },
+    )
     _emit(fmt, {"type": "result", "cost_usd": 0.0012, "duration_ms": 900})
     fmt.finish()
 
@@ -799,6 +808,65 @@ def test_claude_summary_on_finish() -> None:
     assert "Working on it..." in rendered
     assert "$0.0012" in rendered
     assert "0.9s" in rendered
+
+
+def test_claude_result_total_cost_field_supported() -> None:
+    console, out = _console(force_terminal=False)
+    fmt = ClaudeFormatter(console)
+
+    _emit(
+        fmt,
+        {
+            "type": "assistant",
+            "message": {
+                "role": "assistant",
+                "content": [{"type": "text", "text": "Done."}],
+            },
+        },
+    )
+    _emit(fmt, {"type": "result", "total_cost_usd": 0.1234, "duration_ms": 1200})
+    fmt.finish()
+
+    rendered = out.getvalue()
+    assert "cost=$0.1234" in rendered
+    assert "duration=1.2s" in rendered
+
+
+def test_claude_text_delta_accumulates_without_assistant_event() -> None:
+    console, out = _console(force_terminal=False)
+    fmt = ClaudeFormatter(console)
+
+    _emit(
+        fmt,
+        {
+            "type": "stream_event",
+            "event": {
+                "type": "content_block_start",
+                "content_block": {"type": "text", "text": ""},
+            },
+        },
+    )
+    _emit(
+        fmt,
+        {
+            "type": "stream_event",
+            "event": {
+                "type": "content_block_delta",
+                "delta": {"type": "text_delta", "text": "Hello"},
+            },
+        },
+    )
+    _emit(
+        fmt,
+        {
+            "type": "stream_event",
+            "event": {"type": "content_block_stop"},
+        },
+    )
+    fmt.finish()
+
+    rendered = out.getvalue()
+    assert "Hello" in rendered
 
 
 def test_claude_no_rich_artifacts() -> None:

@@ -327,6 +327,8 @@ class ClaudeFormatter(_BaseFormatter):
         self._active_block_type: str | None = None
         self._active_tool_name: str | None = None
         self._active_tool_json_parts: list[str] = []
+        self._live_text_open = False
+        self._saw_live_text = False
         # Track tool names already emitted via stream events to avoid duplicates
         self._stream_tool_ids: set[str] = set()
 
@@ -347,6 +349,11 @@ class ClaudeFormatter(_BaseFormatter):
                 if not self._thinking:
                     self._thinking = True
                     self._info("thinking...")
+            elif btype == "text":
+                if self.interactive and not self._live_text_open:
+                    self.console.print(Text("  agent ", style="bold green"), end="")
+                    self._live_text_open = True
+                    self._saw_live_text = True
             elif btype == "tool_use":
                 tool_id = block.get("id", "")
                 self._active_tool_name = block.get("name", "?")
@@ -356,10 +363,17 @@ class ClaudeFormatter(_BaseFormatter):
 
         elif inner_type == "content_block_delta":
             delta = inner.get("delta", {})
-            if isinstance(delta, dict) and delta.get("type") == "input_json_delta":
-                part = delta.get("partial_json", "")
-                if isinstance(part, str) and part:
-                    self._active_tool_json_parts.append(part)
+            if isinstance(delta, dict):
+                if delta.get("type") == "input_json_delta":
+                    part = delta.get("partial_json", "")
+                    if isinstance(part, str) and part:
+                        self._active_tool_json_parts.append(part)
+                elif delta.get("type") == "text_delta":
+                    part = delta.get("text", "")
+                    if isinstance(part, str) and part:
+                        self._accumulate(part)
+                        if self.interactive and self._live_text_open:
+                            self.console.print(part, end="", markup=False, highlight=False)
 
         elif inner_type == "content_block_stop":
             if self._active_block_type == "tool_use" and self._active_tool_name:
@@ -373,6 +387,10 @@ class ClaudeFormatter(_BaseFormatter):
                         pass
                 detail = self._extract_detail(canonical, inp)
                 self._buffer_tool(canonical, detail)
+            elif self._active_block_type == "text":
+                if self.interactive and self._live_text_open:
+                    self.console.print()
+                    self._live_text_open = False
             self._thinking = False
             self._active_block_type = None
             self._active_tool_name = None
@@ -394,12 +412,12 @@ class ClaudeFormatter(_BaseFormatter):
         elif etype == "assistant":
             self._thinking = False
             # Replace (not append) to avoid duplicates from partial assistant events
-            msg = event.get("message", "")
+            msg = _message_text({"message": event.get("message")})
             if isinstance(msg, str) and msg.strip():
                 self._summary_parts = [msg]
 
         elif etype == "result":
-            cost = event.get("cost_usd")
+            cost = event.get("cost_usd", event.get("total_cost_usd"))
             duration = event.get("duration_ms")
             if isinstance(duration, (int, float)):
                 self._set_stat("duration", duration / 1000.0)
@@ -426,9 +444,14 @@ class ClaudeFormatter(_BaseFormatter):
             self._error(event.get("error", str(event)))
 
     def finish(self) -> None:
+        if self.interactive and self._live_text_open:
+            self.console.print()
+            self._live_text_open = False
         self._flush_pending()
         self._print_stats()
-        self._print_summary()
+        # In interactive mode, live text deltas already displayed the message.
+        if not (self.interactive and self._saw_live_text):
+            self._print_summary()
 
 
 class CodexFormatter(_BaseFormatter):
