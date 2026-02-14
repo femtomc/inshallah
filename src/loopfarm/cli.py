@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import io
 import json
 import sys
 import time
@@ -62,9 +63,52 @@ def _output(data: object, *, pretty: bool = False) -> None:
     sys.stdout.write("\n")
 
 
-def _error(msg: str) -> int:
-    _output({"error": msg})
+def _format_recovery(recovery: list[str] | None) -> str:
+    if not recovery:
+        return ""
+    return " Recovery: " + " | ".join(recovery)
+
+
+def _error(msg: str, *, recovery: list[str] | None = None) -> int:
+    _output({"error": f"{msg}{_format_recovery(recovery)}"})
     return 1
+
+
+def _print_next_steps(console: Console, steps: list[str], *, title: str = "Next Steps") -> None:
+    if not steps:
+        return
+    table = Table(title=title, show_header=False, box=None, pad_edge=False)
+    table.add_column("Step", style="bold")
+    table.add_column("Command", style="bold cyan")
+    for idx, command in enumerate(steps, start=1):
+        table.add_row(str(idx), command)
+    console.print(table)
+
+
+def _fail(
+    console: Console,
+    msg: str,
+    *,
+    recovery: list[str] | None = None,
+    json_mode: bool = False,
+) -> int:
+    if json_mode:
+        return _error(msg, recovery=recovery)
+    console.print(Text(msg, style="red"))
+    if recovery:
+        _print_next_steps(console, recovery, title="Recovery")
+    return 1
+
+
+def _runner_console(console: Console, *, json_mode: bool) -> Console:
+    if not json_mode:
+        return console
+    # Keep --json output machine-readable by suppressing rich runner logs.
+    return Console(file=io.StringIO(), force_terminal=False, color_system=None)
+
+
+def _guide_cross_link(console: Console) -> None:
+    console.print(Text("Need end-to-end context? Run `loopfarm guide`.", style="dim"))
 
 
 def _print_command_help(
@@ -75,6 +119,8 @@ def _print_command_help(
     about: str,
     options: list[tuple[str, str]],
     examples: list[str],
+    next_steps: list[str] | None = None,
+    include_guide: bool = True,
 ) -> int:
     console.print(Panel.fit(about, title=title, border_style="cyan"))
     console.print(Text(f"Usage: {usage}", style="bold"))
@@ -89,6 +135,10 @@ def _print_command_help(
         console.print(Text("Examples:", style="bold"))
         for example in examples:
             console.print(f"  {example}")
+    if next_steps:
+        _print_next_steps(console, next_steps)
+    if include_guide:
+        _guide_cross_link(console)
     return 0
 
 
@@ -210,6 +260,15 @@ def cmd_init(console: Console) -> int:
             style="green",
             expand=False,
         )
+    )
+    _print_next_steps(
+        console,
+        [
+            "loopfarm guide",
+            "loopfarm roles --table",
+            "loopfarm run \"Break down and execute this goal\"",
+            "loopfarm status",
+        ],
     )
     return 0
 
@@ -341,6 +400,23 @@ def cmd_resume(argv: list[str], console: Console) -> int:
                     _ago(issue.get("created_at", 0)),
                 )
             console.print(table)
+            sample_root = roots[-1]["id"]
+            _print_next_steps(
+                console,
+                [
+                    f"loopfarm resume {sample_root}",
+                    f"loopfarm issues ready --root {sample_root}",
+                    "loopfarm guide --section workflow",
+                ],
+            )
+        else:
+            _print_next_steps(
+                console,
+                [
+                    "loopfarm run \"Break down and execute this goal\"",
+                    "loopfarm guide --section workflow",
+                ],
+            )
         return 0
 
     issue_id = argv[0]
@@ -356,18 +432,34 @@ def cmd_resume(argv: list[str], console: Console) -> int:
         if len(candidates) == 1:
             issue = candidates[0]
         elif len(candidates) > 1:
-            console.print(Text(f"Ambiguous prefix '{issue_id}'", style="red"))
-            for candidate in candidates:
-                console.print(f"  {candidate['id']}")
-            return 1
+            sample = ", ".join(candidate["id"] for candidate in candidates[:5])
+            suffix = "..." if len(candidates) > 5 else ""
+            return _fail(
+                console,
+                f"Ambiguous prefix '{issue_id}' ({sample}{suffix})",
+                recovery=[
+                    "loopfarm status",
+                    "loopfarm issues list --root <root-id> --limit 20",
+                    "loopfarm guide --section workflow",
+                ],
+                json_mode=args.json,
+            )
     if issue is None:
-        console.print(Text(f"Issue not found: {issue_id}", style="red"))
-        return 1
+        return _fail(
+            console,
+            f"Issue not found: {issue_id}",
+            recovery=[
+                "loopfarm status",
+                "loopfarm issues list --limit 20",
+                "loopfarm guide --section workflow",
+            ],
+            json_mode=args.json,
+        )
 
     root_id = issue["id"]
 
     reset = store.reset_in_progress(root_id)
-    if reset:
+    if reset and not args.json:
         console.print(
             Panel(
                 f"Reset {len(reset)} stale issue(s) to open: " + ", ".join(reset),
@@ -376,15 +468,16 @@ def cmd_resume(argv: list[str], console: Console) -> int:
             )
         )
 
-    console.print(
-        Panel(
-            f"Resuming [bold]{root_id}[/bold] - {issue['title'][:80]}",
-            style="cyan",
-            expand=False,
+    if not args.json:
+        console.print(
+            Panel(
+                f"Resuming [bold]{root_id}[/bold] - {issue['title'][:80]}",
+                style="cyan",
+                expand=False,
+            )
         )
-    )
 
-    runner = DagRunner(store, forum, root, console=console)
+    runner = DagRunner(store, forum, root, console=_runner_console(console, json_mode=args.json))
     result = runner.run(
         root_id, max_steps=args.max_steps, max_reviews=args.max_reviews
     )
@@ -399,6 +492,27 @@ def cmd_resume(argv: list[str], console: Console) -> int:
             },
             pretty=True,
         )
+    else:
+        if result.error:
+            console.print(Text(f"Runner error: {result.error}", style="red"))
+        if result.status == "root_final":
+            _print_next_steps(
+                console,
+                [
+                    f"loopfarm issues validate {root_id}",
+                    "loopfarm status",
+                    "loopfarm guide --section workflow",
+                ],
+            )
+        else:
+            _print_next_steps(
+                console,
+                [
+                    f"loopfarm resume {root_id}",
+                    f"loopfarm issues ready --root {root_id}",
+                    "loopfarm guide --section workflow",
+                ],
+            )
 
     return 0 if result.status == "root_final" else 1
 
@@ -459,6 +573,39 @@ def cmd_status(argv: list[str], console: Console) -> int:
             ttable.add_row(topic["topic"], str(topic["messages"]), _ago(topic["last_at"]))
         console.print(ttable)
 
+    if not roots:
+        _print_next_steps(
+            console,
+            [
+                "loopfarm init",
+                "loopfarm guide",
+                "loopfarm run \"Break down and execute this goal\"",
+            ],
+        )
+        return 0
+
+    if ready:
+        issue_id = ready[0]["id"]
+        _print_next_steps(
+            console,
+            [
+                f"loopfarm issues get {issue_id}",
+                f"loopfarm forum read issue:{issue_id} --limit 20",
+                f"loopfarm issues update {issue_id} --status in_progress",
+                "loopfarm guide --section workflow",
+            ],
+        )
+    else:
+        root_id = roots[-1]["id"]
+        _print_next_steps(
+            console,
+            [
+                f"loopfarm issues ready --root {root_id}",
+                f"loopfarm resume {root_id}",
+                "loopfarm guide --section workflow",
+            ],
+        )
+
     return 0
 
 
@@ -469,20 +616,37 @@ def cmd_run(args: argparse.Namespace, console: Console) -> int:
 
     prompt_text = " ".join(args.prompt)
     if not prompt_text:
+        if args.json:
+            return _error(
+                "missing prompt",
+                recovery=[
+                    "loopfarm run \"Break down and execute this goal\"",
+                    "loopfarm guide --section workflow",
+                ],
+            )
         console.print(Text("No prompt provided.", style="red"))
+        _print_next_steps(
+            console,
+            [
+                "loopfarm guide --section workflow",
+                "loopfarm run \"Break down and execute this goal\"",
+            ],
+            title="Recovery",
+        )
         return 1
 
     root_issue = store.create(prompt_text, tags=["node:agent", "node:root"])
-    console.print(
-        Panel(
-            f"[bold]{root_issue['id']}[/bold] - {prompt_text[:80]}",
-            title="Root Issue",
-            style="cyan",
-            expand=False,
+    if not args.json:
+        console.print(
+            Panel(
+                f"[bold]{root_issue['id']}[/bold] - {prompt_text[:80]}",
+                title="Root Issue",
+                style="cyan",
+                expand=False,
+            )
         )
-    )
 
-    runner = DagRunner(store, forum, root, console=console)
+    runner = DagRunner(store, forum, root, console=_runner_console(console, json_mode=args.json))
     result = runner.run(
         root_issue["id"],
         max_steps=args.max_steps,
@@ -499,6 +663,27 @@ def cmd_run(args: argparse.Namespace, console: Console) -> int:
             },
             pretty=True,
         )
+    else:
+        if result.error:
+            console.print(Text(f"Runner error: {result.error}", style="red"))
+        if result.status == "root_final":
+            _print_next_steps(
+                console,
+                [
+                    f"loopfarm issues validate {root_issue['id']}",
+                    "loopfarm status",
+                    "loopfarm guide --section workflow",
+                ],
+            )
+        else:
+            _print_next_steps(
+                console,
+                [
+                    f"loopfarm issues ready --root {root_issue['id']}",
+                    f"loopfarm resume {root_issue['id']}",
+                    "loopfarm guide --section workflow",
+                ],
+            )
 
     return 0 if result.status == "root_final" else 1
 
@@ -566,11 +751,25 @@ def _resolve_issue_id(store: IssueStore, raw_id: str) -> tuple[str | None, str |
 
     matches = [issue["id"] for issue in store.list() if issue["id"].startswith(raw_id)]
     if not matches:
-        return None, f"not found: {raw_id}"
+        return (
+            None,
+            (
+                f"not found: {raw_id}"
+                " Recovery: loopfarm issues list --limit 20"
+                " | loopfarm issues ready --root <root-id>"
+            ),
+        )
     if len(matches) > 1:
         sample = ", ".join(matches[:5])
         suffix = "..." if len(matches) > 5 else ""
-        return None, f"ambiguous id prefix: {raw_id} ({sample}{suffix})"
+        return (
+            None,
+            (
+                f"ambiguous id prefix: {raw_id} ({sample}{suffix})"
+                " Recovery: use a longer id prefix"
+                " | loopfarm issues list --limit 20"
+            ),
+        )
     return matches[0], None
 
 
@@ -614,6 +813,16 @@ def _print_issues_help(console: Console) -> int:
     table.add_row("validate", "Validate DAG completion state for a root")
     console.print(table)
     console.print(Text("Run `loopfarm issues <command> --help` for details.", style="dim"))
+    _print_next_steps(
+        console,
+        [
+            "loopfarm issues ready --root <root-id>",
+            "loopfarm issues get <issue-id>",
+            "loopfarm forum read issue:<issue-id> --limit 20",
+            "loopfarm guide --section workflow",
+        ],
+    )
+    _guide_cross_link(console)
     return 0
 
 
@@ -746,9 +955,15 @@ def _issues_cmd_create(argv: list[str], pretty: bool, console: Console) -> int:
     args = p.parse_args(argv)
 
     if not args.title:
-        return _error("missing title")
+        return _error(
+            "missing title",
+            recovery=["loopfarm issues create \"Title\" --body \"Details\""],
+        )
     if args.priority < 1 or args.priority > 5:
-        return _error("priority must be in range 1-5")
+        return _error(
+            "priority must be in range 1-5",
+            recovery=["loopfarm issues create \"Title\" --priority 2"],
+        )
 
     tags = list(dict.fromkeys(args.tag))
     if "node:agent" not in tags:
@@ -834,10 +1049,16 @@ def _issues_cmd_update(argv: list[str], pretty: bool, console: Console) -> int:
 
     issue = store.get(issue_id)
     if issue is None:
-        return _error(f"not found: {args.id}")
+        return _error(
+            f"not found: {args.id}",
+            recovery=["loopfarm issues list --limit 20"],
+        )
 
     if args.priority is not None and (args.priority < 1 or args.priority > 5):
-        return _error("priority must be in range 1-5")
+        return _error(
+            "priority must be in range 1-5",
+            recovery=[f"loopfarm issues update {issue_id} --priority 2"],
+        )
 
     fields: dict[str, object] = {}
     if args.title is not None:
@@ -888,7 +1109,10 @@ def _issues_cmd_update(argv: list[str], pretty: bool, console: Console) -> int:
         fields["execution_spec"] = spec or None
 
     if not fields:
-        return _error("no fields to update")
+        return _error(
+            "no fields to update",
+            recovery=[f"loopfarm issues update {issue_id} --status in_progress"],
+        )
 
     updated = store.update(issue_id, **fields)
     _output(_issue_json(updated), pretty=pretty)
@@ -913,9 +1137,18 @@ def _issues_cmd_claim(argv: list[str], pretty: bool, console: Console) -> int:
 
     issue = store.get(issue_id)
     if issue is None:
-        return _error(f"not found: {argv[0]}")
+        return _error(
+            f"not found: {argv[0]}",
+            recovery=["loopfarm issues list --status open --limit 20"],
+        )
     if issue["status"] != "open":
-        return _error(f"cannot claim issue in status={issue['status']}")
+        return _error(
+            f"cannot claim issue in status={issue['status']}",
+            recovery=[
+                f"loopfarm issues get {issue_id}",
+                f"loopfarm issues update {issue_id} --status open",
+            ],
+        )
 
     store.claim(issue_id)
     claimed = store.get(issue_id)
@@ -941,7 +1174,10 @@ def _issues_cmd_open(argv: list[str], pretty: bool, console: Console) -> int:
 
     issue = store.get(issue_id)
     if issue is None:
-        return _error(f"not found: {argv[0]}")
+        return _error(
+            f"not found: {argv[0]}",
+            recovery=["loopfarm issues list --limit 20"],
+        )
 
     reopened = store.update(issue_id, status="open", outcome=None)
     _output(_issue_json(reopened), pretty=pretty)
@@ -996,11 +1232,20 @@ def _issues_cmd_dep(argv: list[str], pretty: bool, console: Console) -> int:
         )
 
     if len(argv) < 3:
-        return _error("usage: loopfarm issues dep <src> <type> <dst>")
+        return _error(
+            "usage: loopfarm issues dep <src> <type> <dst>",
+            recovery=["loopfarm issues dep <src-id> blocks <dst-id>"],
+        )
 
     src_raw, dep_type, dst_raw = argv[0], argv[1], argv[2]
     if dep_type not in ("blocks", "parent"):
-        return _error(f"invalid dep type: {dep_type} (use 'blocks' or 'parent')")
+        return _error(
+            f"invalid dep type: {dep_type} (use 'blocks' or 'parent')",
+            recovery=[
+                "loopfarm issues dep <src-id> blocks <dst-id>",
+                "loopfarm issues dep <child-id> parent <parent-id>",
+            ],
+        )
 
     store = _issues_store()
     src, err = _resolve_issue_id(store, src_raw)
@@ -1011,7 +1256,10 @@ def _issues_cmd_dep(argv: list[str], pretty: bool, console: Console) -> int:
         return _error(err)
 
     if src == dst:
-        return _error("source and destination must be different")
+        return _error(
+            "source and destination must be different",
+            recovery=["loopfarm issues dep <src-id> blocks <dst-id>"],
+        )
 
     store.add_dep(src, dep_type, dst)
     _output({"ok": True, "src": src, "type": dep_type, "dst": dst}, pretty=pretty)
@@ -1030,11 +1278,17 @@ def _issues_cmd_undep(argv: list[str], pretty: bool, console: Console) -> int:
         )
 
     if len(argv) < 3:
-        return _error("usage: loopfarm issues undep <src> <type> <dst>")
+        return _error(
+            "usage: loopfarm issues undep <src> <type> <dst>",
+            recovery=["loopfarm issues undep <src-id> blocks <dst-id>"],
+        )
 
     src_raw, dep_type, dst_raw = argv[0], argv[1], argv[2]
     if dep_type not in ("blocks", "parent"):
-        return _error(f"invalid dep type: {dep_type} (use 'blocks' or 'parent')")
+        return _error(
+            f"invalid dep type: {dep_type} (use 'blocks' or 'parent')",
+            recovery=["loopfarm issues undep <src-id> blocks <dst-id>"],
+        )
 
     store = _issues_store()
     src, err = _resolve_issue_id(store, src_raw)
@@ -1165,7 +1419,10 @@ def cmd_issues(argv: list[str], console: Console | None = None) -> int:
     sub = argv[0]
     entry = _ISSUES_SUBCMDS.get(sub)
     if entry is None:
-        return _error(f"unknown subcommand: {sub}")
+        return _error(
+            f"unknown subcommand: {sub}",
+            recovery=["loopfarm issues --help", "loopfarm guide --section workflow"],
+        )
 
     handler, _ = entry
     return handler(argv[1:], pretty, console)
@@ -1195,6 +1452,15 @@ def _print_forum_help(console: Console) -> int:
     table.add_row("topics", "List topics with message counts and latest activity")
     console.print(table)
     console.print(Text("Run `loopfarm forum <command> --help` for details.", style="dim"))
+    _print_next_steps(
+        console,
+        [
+            "loopfarm forum read issue:<issue-id> --limit 20",
+            "loopfarm forum post issue:<issue-id> -m \"status update\" --author worker",
+            "loopfarm guide --section workflow",
+        ],
+    )
+    _guide_cross_link(console)
     return 0
 
 
@@ -1248,7 +1514,10 @@ def _forum_cmd_read(argv: list[str], pretty: bool, console: Console) -> int:
     args = p.parse_args(argv)
 
     if args.limit < 1:
-        return _error("limit must be >= 1")
+        return _error(
+            "limit must be >= 1",
+            recovery=["loopfarm forum read issue:<issue-id> --limit 20"],
+        )
 
     store = _forum_store()
     msgs = store.read(args.topic, limit=args.limit)
@@ -1280,7 +1549,10 @@ def _forum_cmd_topics(argv: list[str], pretty: bool, console: Console) -> int:
     args = p.parse_args(argv)
 
     if args.limit < 1:
-        return _error("limit must be >= 1")
+        return _error(
+            "limit must be >= 1",
+            recovery=["loopfarm forum topics --limit 20"],
+        )
 
     store = _forum_store()
     topics = store.topics(prefix=args.prefix)
@@ -1310,10 +1582,200 @@ def cmd_forum(argv: list[str], console: Console | None = None) -> int:
     sub = argv[0]
     entry = _FORUM_SUBCMDS.get(sub)
     if entry is None:
-        return _error(f"unknown subcommand: {sub}")
+        return _error(
+            f"unknown subcommand: {sub}",
+            recovery=["loopfarm forum --help", "loopfarm guide --section workflow"],
+        )
 
     handler, _ = entry
     return handler(argv[1:], pretty, console)
+
+
+# ---------------------------------------------------------------------------
+# Guide command
+# ---------------------------------------------------------------------------
+
+
+_GUIDE_CONCEPTS: list[tuple[str, str, str]] = [
+    (
+        "issue",
+        "A tracked unit of work in the DAG. Root issues represent goals; child issues represent decomposed tasks.",
+        "loopfarm issues get <id> (shows status, deps, role routing, and outcome).",
+    ),
+    (
+        "parent edge",
+        "Hierarchy edge from child to parent (`child --parent--> parent`).",
+        "loopfarm issues children <parent-id> (shows direct children).",
+    ),
+    (
+        "blocks edge",
+        "Ordering edge from prerequisite to dependent (`a --blocks--> b`). `b` is not ready until `a` closes.",
+        "loopfarm issues dep <a> blocks <b> (creates ordering).",
+    ),
+    (
+        "leaf issue",
+        "An issue with no open children. Leaves are executable work items.",
+        "loopfarm issues ready --root <root-id> (returns executable leaves only).",
+    ),
+    (
+        "ready issue",
+        "An open, unblocked leaf issue tagged `node:agent`.",
+        "loopfarm issues ready --root <root-id> (current queue).",
+    ),
+    (
+        "roles",
+        "Routing metadata for which agent prompt/config should execute an issue (for example `worker` or `reviewer`).",
+        "loopfarm roles --table and loopfarm issues update <id> --role <name>.",
+    ),
+    (
+        "statuses",
+        "`open` (queued), `in_progress` (claimed), `closed` (finished with an outcome).",
+        "loopfarm issues update <id> --status in_progress.",
+    ),
+    (
+        "outcomes",
+        "`success`, `failure`, `skipped`, `expanded` (decomposed into child work).",
+        "loopfarm issues close <id> --outcome expanded.",
+    ),
+]
+
+
+_GUIDE_WORKFLOW: list[tuple[str, str, str]] = [
+    (
+        "Initialize state",
+        "loopfarm init",
+        "Creates `.loopfarm/` stores, prompt templates, role files, and logs directory.",
+    ),
+    (
+        "Inspect execution roles",
+        "loopfarm roles --table",
+        "Shows available role templates and routing defaults (`cli`, `model`, `reasoning`).",
+    ),
+    (
+        "Start orchestration",
+        "loopfarm run \"Break down and execute this goal\"",
+        "Creates a root issue and starts the DAG loop.",
+    ),
+    (
+        "Observe decomposition",
+        "loopfarm issues children <root-id>",
+        "Shows child issues created by the orchestrator via `parent` edges.",
+    ),
+    (
+        "Pick executable work",
+        "loopfarm issues ready --root <root-id>",
+        "Lists the current ready queue (open + unblocked + leaf).",
+    ),
+    (
+        "Execute one atomic issue",
+        "loopfarm issues get <issue-id> && loopfarm forum read issue:<issue-id> --limit 20",
+        "Gives full issue context plus recent coordination notes before running the assigned role.",
+    ),
+    (
+        "Close or expand work",
+        "loopfarm issues close <issue-id> --outcome success",
+        "Workers close with terminal outcomes; orchestrators close with `expanded` after decomposition.",
+    ),
+    (
+        "Review pass (optional role)",
+        "loopfarm forum read issue:<issue-id> --limit 50",
+        "Reviewer activity is logged in the issue topic; reviewer can keep success or expand for targeted fixes.",
+    ),
+    (
+        "Validate DAG completion",
+        "loopfarm issues validate <root-id>",
+        "Returns `is_final` and `reason` so you know whether work is done or still in progress.",
+    ),
+]
+
+
+def _print_guide_plain(console: Console, section: str) -> None:
+    console.print("loopfarm guide")
+    console.print("Mental model and workflow for running loopfarm from CLI only.")
+
+    if section in ("all", "concepts"):
+        console.print("")
+        console.print("Core concepts")
+        for concept, meaning, signal in _GUIDE_CONCEPTS:
+            console.print(f"- {concept}: {meaning}")
+            console.print(f"  command signal: {signal}")
+
+    if section in ("all", "workflow"):
+        console.print("")
+        console.print("End-to-end workflow")
+        for idx, (step, command, interpretation) in enumerate(_GUIDE_WORKFLOW, start=1):
+            console.print(f"{idx}. {step}")
+            console.print(f"   command: {command}")
+            console.print(f"   interpretation: {interpretation}")
+
+
+def _print_guide_rich(console: Console, section: str) -> None:
+    console.print(
+        Panel.fit(
+            "Understand loopfarm's DAG model and execute the full workflow from the CLI.",
+            title="loopfarm guide",
+            border_style="cyan",
+        )
+    )
+
+    if section in ("all", "concepts"):
+        concepts = Table(title="Core Concepts", show_edge=False, pad_edge=False)
+        concepts.add_column("Concept", style="bold cyan")
+        concepts.add_column("Meaning")
+        concepts.add_column("Command Signal", style="dim")
+        for concept, meaning, signal in _GUIDE_CONCEPTS:
+            concepts.add_row(concept, meaning, signal)
+        console.print(concepts)
+
+    if section in ("all", "workflow"):
+        flow = Table(title="Workflow", show_edge=False, pad_edge=False)
+        flow.add_column("Step", style="bold")
+        flow.add_column("Command", style="bold cyan")
+        flow.add_column("Interpretation")
+        for idx, (step, command, interpretation) in enumerate(_GUIDE_WORKFLOW, start=1):
+            flow.add_row(str(idx), command, f"{step}: {interpretation}")
+        console.print(flow)
+
+    console.print(
+        Text(
+            "Tip: `loopfarm issues ready --root <root-id>` is the executable queue; "
+            "`loopfarm issues validate <root-id>` is the completion gate.",
+            style="dim",
+        )
+    )
+
+
+def cmd_guide(argv: list[str], console: Console | None = None) -> int:
+    console = console or Console()
+    if argv and argv[0] in ("-h", "--help"):
+        return _print_command_help(
+            console,
+            title="loopfarm guide",
+            usage="loopfarm guide [--section all|concepts|workflow] [--plain]",
+            about="Show an in-CLI onboarding guide for loopfarm mental model and workflow.",
+            options=[
+                ("--section", "all | concepts | workflow (default: all)"),
+                ("--plain", "Force plain text rendering"),
+            ],
+            examples=[
+                "loopfarm guide",
+                "loopfarm guide --section concepts",
+                "loopfarm guide --plain",
+            ],
+            include_guide=False,
+        )
+
+    p = argparse.ArgumentParser(prog="loopfarm guide", add_help=False)
+    p.add_argument("--section", choices=("all", "concepts", "workflow"), default="all")
+    p.add_argument("--plain", action="store_true")
+    args = p.parse_args(argv)
+
+    plain = args.plain or not console.is_terminal
+    if plain:
+        _print_guide_plain(console, args.section)
+    else:
+        _print_guide_rich(console, args.section)
+    return 0
 
 
 # ---------------------------------------------------------------------------
@@ -1333,6 +1795,7 @@ def _print_help(console: Console) -> None:
     cmds.add_column("Command", style="bold cyan")
     cmds.add_column("Description")
     cmds.add_row("loopfarm init", "Initialize .loopfarm state, templates, and logs")
+    cmds.add_row("loopfarm guide", "Show mental model + workflow onboarding guide")
     cmds.add_row("loopfarm status", "Summarize roots, ready work, roles, and forum activity")
     cmds.add_row("loopfarm run <prompt>", "Create root issue and run the DAG")
     cmds.add_row("loopfarm resume <root-id>", "Resume an interrupted DAG run")
@@ -1348,17 +1811,34 @@ def _print_help(console: Console) -> None:
     quick.add_column("Step", style="bold")
     quick.add_column("Command")
     quick.add_row("1", "loopfarm init")
-    quick.add_row("2", "loopfarm roles --table")
-    quick.add_row("3", "loopfarm run \"Break down and execute this goal\"")
-    quick.add_row("4", "loopfarm issues ready --root <root-id>")
+    quick.add_row("2", "loopfarm guide")
+    quick.add_row("3", "loopfarm roles --table")
+    quick.add_row("4", "loopfarm run \"Break down and execute this goal\"")
+    quick.add_row("5", "loopfarm issues ready --root <root-id>")
     console.print(quick)
     console.print(Text("Run `loopfarm <command> --help` for command-specific details.", style="dim"))
+    _guide_cross_link(console)
 
 
 def _dispatch_prompt_shorthand(raw: list[str], console: Console) -> int:
     """Support legacy shorthand: loopfarm <prompt words...>."""
     args = _run_parser(prog="loopfarm").parse_args(raw)
     return cmd_run(args, console)
+
+
+def _unknown_command_recovery(console: Console, command: str) -> int:
+    console.print(Text(f"Unknown or ambiguous command: {command}", style="red"))
+    _print_next_steps(
+        console,
+        [
+            "loopfarm --help",
+            "loopfarm guide",
+            "loopfarm roles --pretty",
+        ],
+        title="Recovery",
+    )
+    console.print(Text('Example: loopfarm run "Summarize current ready issues".', style="dim"))
+    return 1
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -1377,6 +1857,9 @@ def main(argv: list[str] | None = None) -> None:
 
     if command == "init":
         sys.exit(cmd_init(console))
+
+    if command == "guide":
+        sys.exit(cmd_guide(raw[1:], console))
 
     if command == "status":
         sys.exit(cmd_status(raw[1:], console))
@@ -1402,6 +1885,9 @@ def main(argv: list[str] | None = None) -> None:
 
     if command == "serve":
         sys.exit(cmd_serve(raw[1:], console))
+
+    if len(raw) == 1:
+        sys.exit(_unknown_command_recovery(console, command))
 
     # Backward-compatible shorthand: treat unknown top-level text as run prompt.
     sys.exit(_dispatch_prompt_shorthand(raw, console))
