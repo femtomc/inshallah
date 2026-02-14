@@ -28,8 +28,7 @@ more on that, do you even know what you're building ("build me a billion dollar 
 
 Loops are an _excellent_ vehicle to move serious tokens (unfortunately, your children will not be going to college) -- but their properties are subtle. 
 Context management is _paramount_. It is not sufficient to give a loop some half-curated codebase, or some half-baked vagary. Firstly, moron, take ownership of the tokens that
-flow in and out of your work. Secondly, loops should be _focused_ on a chunk of work which has been sufficiently de-risked. Otherwise, the compounding context properties of 
-loops will destroy you.
+flow in and out of your work. Secondly, loops should be focused on chunks of work which have been sufficiently de-risked ... nearly decomposed to determinism. Otherwise, the compounding context properties of loops will destroy you and your holy work.
 
 DAGs are a wondrous vessel for work orchestration (the breaking down of goals into subgoals, yada yada). But who makes the DAG? Will you, surly idiot, first of your name, make the DAG? No, agents make the DAG. Did you really think you'd need to get involved? You, with your paltry taste
 and sordid goals? DAGs are the pattern of hierarchical task decomposition and planning. Hierarchical planning works.
