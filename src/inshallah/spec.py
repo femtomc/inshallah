@@ -21,7 +21,7 @@ class ExecutionSpec:
 
         # Auto-resolve prompt_path from role name
         if not prompt_path and role and repo_root:
-            candidate = repo_root / ".loopfarm" / "roles" / f"{role}.md"
+            candidate = repo_root / ".inshallah" / "roles" / f"{role}.md"
             if candidate.exists():
                 prompt_path = str(candidate)
 

@@ -17,7 +17,7 @@ class ValidationResult:
 
 
 class IssueStore:
-    """JSONL-backed issue tracker stored in .loopfarm/issues.jsonl."""
+    """JSONL-backed issue tracker stored in .inshallah/issues.jsonl."""
 
     def __init__(self, path: Path) -> None:
         self.path = path
@@ -25,7 +25,7 @@ class IssueStore:
     @classmethod
     def from_workdir(cls, root: Path | None = None) -> IssueStore:
         root = root or Path.cwd()
-        return cls(root / ".loopfarm" / "issues.jsonl")
+        return cls(root / ".inshallah" / "issues.jsonl")
 
     def _load(self) -> list[dict]:
         return read_jsonl(self.path)
@@ -50,7 +50,7 @@ class IssueStore:
     ) -> dict:
         now = now_ts()
         issue = {
-            "id": f"loopfarm-{short_id()}",
+            "id": f"inshallah-{short_id()}",
             "title": title,
             "body": body,
             "status": "open",

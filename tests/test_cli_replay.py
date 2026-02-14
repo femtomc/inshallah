@@ -5,14 +5,14 @@ from unittest.mock import MagicMock, patch
 
 from rich.console import Console
 
-from loopfarm.cli import cmd_replay
+from inshallah.cli import cmd_replay
 
 
 def test_replay_help_mentions_gemini_backend(tmp_path: Path) -> None:
-    (tmp_path / ".loopfarm" / "logs").mkdir(parents=True)
+    (tmp_path / ".inshallah" / "logs").mkdir(parents=True)
     console = Console(record=True)
 
-    with patch("loopfarm.cli._find_repo_root", return_value=tmp_path):
+    with patch("inshallah.cli._find_repo_root", return_value=tmp_path):
         rc = cmd_replay(["--help"], console)
 
     assert rc == 0
@@ -21,18 +21,18 @@ def test_replay_help_mentions_gemini_backend(tmp_path: Path) -> None:
 
 
 def test_replay_uses_gemini_formatter(tmp_path: Path) -> None:
-    logs_dir = tmp_path / ".loopfarm" / "logs"
+    logs_dir = tmp_path / ".inshallah" / "logs"
     logs_dir.mkdir(parents=True)
-    (logs_dir / "loopfarm-test123.jsonl").write_text('{"type":"text","part":{"text":"hello"}}\n')
+    (logs_dir / "inshallah-test123.jsonl").write_text('{"type":"text","part":{"text":"hello"}}\n')
 
     console = Console(record=True)
     formatter = MagicMock()
 
-    with patch("loopfarm.cli._find_repo_root", return_value=tmp_path), patch(
-        "loopfarm.cli.get_formatter",
+    with patch("inshallah.cli._find_repo_root", return_value=tmp_path), patch(
+        "inshallah.cli.get_formatter",
         return_value=formatter,
     ) as mock_get_formatter:
-        rc = cmd_replay(["loopfarm-test123", "--backend", "gemini"], console)
+        rc = cmd_replay(["inshallah-test123", "--backend", "gemini"], console)
 
     assert rc == 0
     mock_get_formatter.assert_called_with("gemini", console)

@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from loopfarm.backend import GeminiBackend, OpenCodeBackend, PiBackend, get_backend
+from inshallah.backend import GeminiBackend, OpenCodeBackend, PiBackend, get_backend
 
 
 def test_get_backend_opencode() -> None:
@@ -97,7 +97,7 @@ def test_pi_run_maps_stream_error_to_nonzero_exit() -> None:
     backend = PiBackend()
     on_line = MagicMock()
 
-    with patch("loopfarm.backend.subprocess.Popen") as mock_popen:
+    with patch("inshallah.backend.subprocess.Popen") as mock_popen:
         proc = MagicMock()
         proc.stdout = MagicMock()
         proc.stdout.readline.side_effect = [
@@ -125,7 +125,7 @@ def test_pi_run_maps_stream_error_to_nonzero_exit() -> None:
 def test_pi_run_keeps_process_exit_code() -> None:
     backend = PiBackend()
 
-    with patch("loopfarm.backend.subprocess.Popen") as mock_popen:
+    with patch("inshallah.backend.subprocess.Popen") as mock_popen:
         proc = MagicMock()
         proc.stdout = MagicMock()
         proc.stdout.readline.side_effect = [
@@ -150,7 +150,7 @@ def test_gemini_run_maps_result_failure_to_nonzero_exit() -> None:
     backend = GeminiBackend()
     on_line = MagicMock()
 
-    with patch("loopfarm.backend.subprocess.Popen") as mock_popen:
+    with patch("inshallah.backend.subprocess.Popen") as mock_popen:
         proc = MagicMock()
         proc.stdout = MagicMock()
         proc.stdout.readline.side_effect = [

@@ -6,7 +6,7 @@ import re
 
 from rich.console import Console
 
-from loopfarm.fmt import ClaudeFormatter, CodexFormatter, GeminiFormatter, OpenCodeFormatter, PiFormatter
+from inshallah.fmt import ClaudeFormatter, CodexFormatter, GeminiFormatter, OpenCodeFormatter, PiFormatter
 
 
 def _console(force_terminal: bool) -> tuple[Console, io.StringIO]:
@@ -725,14 +725,14 @@ def test_claude_no_rich_artifacts() -> None:
         {
             "type": "tool_use",
             "tool": "Read",
-            "input": {"file_path": "src/loopfarm/fmt.py"},
+            "input": {"file_path": "src/inshallah/fmt.py"},
         },
     )
     _emit(fmt, {"type": "tool_result", "is_error": False})
     _emit(fmt, {"type": "error", "error": "boom"})
 
     rendered = out.getvalue()
-    assert "read src/loopfarm/fmt.py" in rendered
+    assert "read src/inshallah/fmt.py" in rendered
     assert "error: boom" in rendered
     assert "\x1b[" not in rendered
     assert not re.search(r"[╭╮╰╯│─]", rendered)
@@ -763,7 +763,7 @@ def test_claude_pending_tool_flushed_on_finish() -> None:
 
 
 def test_normalize_tool_names() -> None:
-    from loopfarm.fmt import _normalize_tool
+    from inshallah.fmt import _normalize_tool
 
     assert _normalize_tool("Read") == "read"
     assert _normalize_tool("Write") == "write"

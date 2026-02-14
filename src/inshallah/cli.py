@@ -1,4 +1,4 @@
-"""CLI entry point for loopfarm."""
+"""CLI entry point for inshallah."""
 
 from __future__ import annotations
 
@@ -33,7 +33,7 @@ def _find_repo_root() -> Path:
     return Path.cwd()
 
 
-def _run_parser(prog: str = "loopfarm run") -> argparse.ArgumentParser:
+def _run_parser(prog: str = "inshallah run") -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog=prog, add_help=False)
     p.add_argument("prompt", nargs="*")
     p.add_argument("--max-steps", type=int, default=20)
@@ -108,7 +108,7 @@ def _runner_console(console: Console, *, json_mode: bool) -> Console:
 
 
 def _guide_cross_link(console: Console) -> None:
-    console.print(Text("Need end-to-end context? Run `loopfarm guide`.", style="dim"))
+    console.print(Text("Need end-to-end context? Run `inshallah guide`.", style="dim"))
 
 
 def _print_command_help(
@@ -149,7 +149,7 @@ def _print_command_help(
 
 def cmd_init(console: Console) -> int:
     root = _find_repo_root()
-    lf = root / ".loopfarm"
+    lf = root / ".inshallah"
     lf.mkdir(exist_ok=True)
     (lf / "issues.jsonl").touch()
     (lf / "forum.jsonl").touch()
@@ -177,20 +177,20 @@ def cmd_init(console: Console) -> int:
             "## CLI Quick Reference\n\n"
             "```bash\n"
             "# Inspect graph state\n"
-            "loopfarm issues get <id>\n"
-            "loopfarm issues list --root <root-id>\n"
-            "loopfarm issues children <id>\n"
-            "loopfarm issues ready --root <root-id>\n"
-            "loopfarm issues validate <root-id>\n"
-            "loopfarm roles --pretty\n\n"
+            "inshallah issues get <id>\n"
+            "inshallah issues list --root <root-id>\n"
+            "inshallah issues children <id>\n"
+            "inshallah issues ready --root <root-id>\n"
+            "inshallah issues validate <root-id>\n"
+            "inshallah roles --pretty\n\n"
             "# Decompose work\n"
-            "loopfarm issues create \"Title\" --body \"Details\" --parent <id> --role worker --priority 2\n"
-            "loopfarm issues dep <src-id> blocks <dst-id>\n"
-            "loopfarm issues update <id> --role worker\n"
-            "loopfarm issues close <id> --outcome expanded\n\n"
+            "inshallah issues create \"Title\" --body \"Details\" --parent <id> --role worker --priority 2\n"
+            "inshallah issues dep <src-id> blocks <dst-id>\n"
+            "inshallah issues update <id> --role worker\n"
+            "inshallah issues close <id> --outcome expanded\n\n"
             "# Collaborate\n"
-            "loopfarm forum post issue:<id> -m \"notes\" --author orchestrator\n"
-            "loopfarm forum read issue:<id> --limit 20\n"
+            "inshallah forum post issue:<id> -m \"notes\" --author orchestrator\n"
+            "inshallah forum read issue:<id> --limit 20\n"
             "```\n"
         )
 
@@ -214,10 +214,10 @@ def cmd_init(console: Console) -> int:
             "3. Close with a terminal outcome: success, failure, or skipped.\n\n"
             "## CLI Quick Reference\n\n"
             "```bash\n"
-            "loopfarm issues get <id>\n"
-            "loopfarm issues update <id> --status in_progress\n"
-            "loopfarm forum post issue:<id> -m \"status update\" --author worker\n"
-            "loopfarm issues close <id> --outcome success\n"
+            "inshallah issues get <id>\n"
+            "inshallah issues update <id> --status in_progress\n"
+            "inshallah forum post issue:<id> -m \"status update\" --author worker\n"
+            "inshallah issues close <id> --outcome success\n"
             "```\n"
         )
 
@@ -243,9 +243,9 @@ def cmd_init(console: Console) -> int:
             "Do nothing. The issue stays closed with outcome=success.\n\n"
             "### If the work needs targeted fixes:\n"
             "1. Change the outcome:\n"
-            "   `loopfarm issues update {{ISSUE_ID}} --outcome expanded`\n"
+            "   `inshallah issues update {{ISSUE_ID}} --outcome expanded`\n"
             "2. Create specific child issues for each fix:\n"
-            "   `loopfarm issues create \"Fix: <problem>\" --body \"<details>\" --parent {{ISSUE_ID}} --role worker`\n\n"
+            "   `inshallah issues create \"Fix: <problem>\" --body \"<details>\" --parent {{ISSUE_ID}} --role worker`\n\n"
             "## Rules\n\n"
             "- Only change outcome to `expanded` if there are real functional issues.\n"
             "- Each child issue must be atomic and actionable.\n"
@@ -256,7 +256,7 @@ def cmd_init(console: Console) -> int:
     (lf / "logs").mkdir(exist_ok=True)
     console.print(
         Panel(
-            f"Initialized [bold].loopfarm/[/bold] in {root}",
+            f"Initialized [bold].inshallah/[/bold] in {root}",
             style="green",
             expand=False,
         )
@@ -264,10 +264,10 @@ def cmd_init(console: Console) -> int:
     _print_next_steps(
         console,
         [
-            "loopfarm guide",
-            "loopfarm roles --table",
-            "loopfarm run \"Break down and execute this goal\"",
-            "loopfarm status",
+            "inshallah guide",
+            "inshallah roles --table",
+            "inshallah run \"Break down and execute this goal\"",
+            "inshallah status",
         ],
     )
     return 0
@@ -277,18 +277,18 @@ def cmd_serve(argv: list[str], console: Console) -> int:
     if argv and argv[0] in ("-h", "--help"):
         return _print_command_help(
             console,
-            title="loopfarm serve",
-            usage="loopfarm serve [--host HOST] [--port PORT] [--reload]",
-            about="Start the loopfarm web interface.",
+            title="inshallah serve",
+            usage="inshallah serve [--host HOST] [--port PORT] [--reload]",
+            about="Start the inshallah web interface.",
             options=[
                 ("--host", "Bind address (default: 127.0.0.1)"),
                 ("--port", "Bind port (default: 8420)"),
                 ("--reload", "Enable auto-reload for development"),
             ],
-            examples=["loopfarm serve", "loopfarm serve --port 9000 --reload"],
+            examples=["inshallah serve", "inshallah serve --port 9000 --reload"],
         )
 
-    p = argparse.ArgumentParser(prog="loopfarm serve", add_help=False)
+    p = argparse.ArgumentParser(prog="inshallah serve", add_help=False)
     p.add_argument("--host", default="127.0.0.1")
     p.add_argument("--port", type=int, default=8420)
     p.add_argument("--reload", action="store_true")
@@ -299,21 +299,21 @@ def cmd_serve(argv: list[str], console: Console) -> int:
     except ImportError:
         console.print(
             "[red]Missing web dependencies.[/red] "
-            "Install with: [bold]pip install loopfarm\\[web][/bold]"
+            "Install with: [bold]pip install inshallah\\[web][/bold]"
         )
         return 1
 
     console.print(
         Panel(
             f"Starting web server at [bold]http://{args.host}:{args.port}[/bold]",
-            title="loopfarm serve",
+            title="inshallah serve",
             style="cyan",
             expand=False,
         )
     )
 
     uvicorn.run(
-        "loopfarm.web:create_app",
+        "inshallah.web:create_app",
         factory=True,
         host=args.host,
         port=args.port,
@@ -324,11 +324,11 @@ def cmd_serve(argv: list[str], console: Console) -> int:
 
 def cmd_replay(argv: list[str], console: Console) -> int:
     root = _find_repo_root()
-    logs_dir = root / ".loopfarm" / "logs"
+    logs_dir = root / ".inshallah" / "logs"
 
     if not argv or argv[0] in ("-h", "--help"):
-        console.print("[bold]loopfarm replay[/bold] - replay a logged run\n")
-        console.print("  loopfarm replay [dim]<issue-id|path>[/dim] [dim][--backend codex|claude|opencode|pi|gemini][/dim]\n")
+        console.print("[bold]inshallah replay[/bold] - replay a logged run\n")
+        console.print("  inshallah replay [dim]<issue-id|path>[/dim] [dim][--backend codex|claude|opencode|pi|gemini][/dim]\n")
         if logs_dir.exists():
             logs = sorted(logs_dir.glob("*.jsonl"), key=lambda p: p.stat().st_mtime, reverse=True)
             if logs:
@@ -382,8 +382,8 @@ def cmd_resume(argv: list[str], console: Console) -> int:
     forum = ForumStore.from_workdir(root)
 
     if not argv or argv[0] in ("-h", "--help"):
-        console.print("[bold]loopfarm resume[/bold] - resume an interrupted DAG\n")
-        console.print("  loopfarm resume [dim]<root-id>[/dim] [dim][--max-steps N][/dim]\n")
+        console.print("[bold]inshallah resume[/bold] - resume an interrupted DAG\n")
+        console.print("  inshallah resume [dim]<root-id>[/dim] [dim][--max-steps N][/dim]\n")
         roots = store.list(tag="node:root")
         if roots:
             table = Table(title="Root Issues", expand=False, show_edge=False, pad_edge=False)
@@ -404,17 +404,17 @@ def cmd_resume(argv: list[str], console: Console) -> int:
             _print_next_steps(
                 console,
                 [
-                    f"loopfarm resume {sample_root}",
-                    f"loopfarm issues ready --root {sample_root}",
-                    "loopfarm guide --section workflow",
+                    f"inshallah resume {sample_root}",
+                    f"inshallah issues ready --root {sample_root}",
+                    "inshallah guide --section workflow",
                 ],
             )
         else:
             _print_next_steps(
                 console,
                 [
-                    "loopfarm run \"Break down and execute this goal\"",
-                    "loopfarm guide --section workflow",
+                    "inshallah run \"Break down and execute this goal\"",
+                    "inshallah guide --section workflow",
                 ],
             )
         return 0
@@ -438,9 +438,9 @@ def cmd_resume(argv: list[str], console: Console) -> int:
                 console,
                 f"Ambiguous prefix '{issue_id}' ({sample}{suffix})",
                 recovery=[
-                    "loopfarm status",
-                    "loopfarm issues list --root <root-id> --limit 20",
-                    "loopfarm guide --section workflow",
+                    "inshallah status",
+                    "inshallah issues list --root <root-id> --limit 20",
+                    "inshallah guide --section workflow",
                 ],
                 json_mode=args.json,
             )
@@ -449,9 +449,9 @@ def cmd_resume(argv: list[str], console: Console) -> int:
             console,
             f"Issue not found: {issue_id}",
             recovery=[
-                "loopfarm status",
-                "loopfarm issues list --limit 20",
-                "loopfarm guide --section workflow",
+                "inshallah status",
+                "inshallah issues list --limit 20",
+                "inshallah guide --section workflow",
             ],
             json_mode=args.json,
         )
@@ -499,18 +499,18 @@ def cmd_resume(argv: list[str], console: Console) -> int:
             _print_next_steps(
                 console,
                 [
-                    f"loopfarm issues validate {root_id}",
-                    "loopfarm status",
-                    "loopfarm guide --section workflow",
+                    f"inshallah issues validate {root_id}",
+                    "inshallah status",
+                    "inshallah guide --section workflow",
                 ],
             )
         else:
             _print_next_steps(
                 console,
                 [
-                    f"loopfarm resume {root_id}",
-                    f"loopfarm issues ready --root {root_id}",
-                    "loopfarm guide --section workflow",
+                    f"inshallah resume {root_id}",
+                    f"inshallah issues ready --root {root_id}",
+                    "inshallah guide --section workflow",
                 ],
             )
 
@@ -544,7 +544,7 @@ def cmd_status(argv: list[str], console: Console) -> int:
         _output(payload, pretty=pretty)
         return 0
 
-    console.print(Panel.fit(f"Repo: {root}", title="loopfarm status", border_style="cyan"))
+    console.print(Panel.fit(f"Repo: {root}", title="inshallah status", border_style="cyan"))
 
     summary = Table(show_header=False, box=None, pad_edge=False)
     summary.add_column("Metric", style="bold")
@@ -577,9 +577,9 @@ def cmd_status(argv: list[str], console: Console) -> int:
         _print_next_steps(
             console,
             [
-                "loopfarm init",
-                "loopfarm guide",
-                "loopfarm run \"Break down and execute this goal\"",
+                "inshallah init",
+                "inshallah guide",
+                "inshallah run \"Break down and execute this goal\"",
             ],
         )
         return 0
@@ -589,10 +589,10 @@ def cmd_status(argv: list[str], console: Console) -> int:
         _print_next_steps(
             console,
             [
-                f"loopfarm issues get {issue_id}",
-                f"loopfarm forum read issue:{issue_id} --limit 20",
-                f"loopfarm issues update {issue_id} --status in_progress",
-                "loopfarm guide --section workflow",
+                f"inshallah issues get {issue_id}",
+                f"inshallah forum read issue:{issue_id} --limit 20",
+                f"inshallah issues update {issue_id} --status in_progress",
+                "inshallah guide --section workflow",
             ],
         )
     else:
@@ -600,9 +600,9 @@ def cmd_status(argv: list[str], console: Console) -> int:
         _print_next_steps(
             console,
             [
-                f"loopfarm issues ready --root {root_id}",
-                f"loopfarm resume {root_id}",
-                "loopfarm guide --section workflow",
+                f"inshallah issues ready --root {root_id}",
+                f"inshallah resume {root_id}",
+                "inshallah guide --section workflow",
             ],
         )
 
@@ -620,16 +620,16 @@ def cmd_run(args: argparse.Namespace, console: Console) -> int:
             return _error(
                 "missing prompt",
                 recovery=[
-                    "loopfarm run \"Break down and execute this goal\"",
-                    "loopfarm guide --section workflow",
+                    "inshallah run \"Break down and execute this goal\"",
+                    "inshallah guide --section workflow",
                 ],
             )
         console.print(Text("No prompt provided.", style="red"))
         _print_next_steps(
             console,
             [
-                "loopfarm guide --section workflow",
-                "loopfarm run \"Break down and execute this goal\"",
+                "inshallah guide --section workflow",
+                "inshallah run \"Break down and execute this goal\"",
             ],
             title="Recovery",
         )
@@ -670,18 +670,18 @@ def cmd_run(args: argparse.Namespace, console: Console) -> int:
             _print_next_steps(
                 console,
                 [
-                    f"loopfarm issues validate {root_issue['id']}",
-                    "loopfarm status",
-                    "loopfarm guide --section workflow",
+                    f"inshallah issues validate {root_issue['id']}",
+                    "inshallah status",
+                    "inshallah guide --section workflow",
                 ],
             )
         else:
             _print_next_steps(
                 console,
                 [
-                    f"loopfarm issues ready --root {root_issue['id']}",
-                    f"loopfarm resume {root_issue['id']}",
-                    "loopfarm guide --section workflow",
+                    f"inshallah issues ready --root {root_issue['id']}",
+                    f"inshallah resume {root_issue['id']}",
+                    "inshallah guide --section workflow",
                 ],
             )
 
@@ -692,11 +692,11 @@ def cmd_roles(argv: list[str], console: Console | None = None) -> int:
     console = console or Console()
     if argv and argv[0] in ("-h", "--help"):
         console.print(Panel.fit(
-            "List available role templates from .loopfarm/roles/*.md.",
-            title="loopfarm roles",
+            "List available role templates from .inshallah/roles/*.md.",
+            title="inshallah roles",
             border_style="cyan",
         ))
-        console.print("Usage: loopfarm roles [--json] [--table] [--pretty]")
+        console.print("Usage: inshallah roles [--json] [--table] [--pretty]")
         console.print("Defaults to JSON output for automation.", style="dim")
         return 0
 
@@ -755,8 +755,8 @@ def _resolve_issue_id(store: IssueStore, raw_id: str) -> tuple[str | None, str |
             None,
             (
                 f"not found: {raw_id}"
-                " Recovery: loopfarm issues list --limit 20"
-                " | loopfarm issues ready --root <root-id>"
+                " Recovery: inshallah issues list --limit 20"
+                " | inshallah issues ready --root <root-id>"
             ),
         )
     if len(matches) > 1:
@@ -767,7 +767,7 @@ def _resolve_issue_id(store: IssueStore, raw_id: str) -> tuple[str | None, str |
             (
                 f"ambiguous id prefix: {raw_id} ({sample}{suffix})"
                 " Recovery: use a longer id prefix"
-                " | loopfarm issues list --limit 20"
+                " | inshallah issues list --limit 20"
             ),
         )
     return matches[0], None
@@ -792,7 +792,7 @@ def _issue_json(issue: dict) -> dict:
 def _print_issues_help(console: Console) -> int:
     console.print(Panel.fit(
         "Issue DAG commands for orchestrators and workers. Data commands return JSON.",
-        title="loopfarm issues",
+        title="inshallah issues",
         border_style="cyan",
     ))
 
@@ -812,14 +812,14 @@ def _print_issues_help(console: Console) -> int:
     table.add_row("ready", "List executable leaf issues")
     table.add_row("validate", "Validate DAG completion state for a root")
     console.print(table)
-    console.print(Text("Run `loopfarm issues <command> --help` for details.", style="dim"))
+    console.print(Text("Run `inshallah issues <command> --help` for details.", style="dim"))
     _print_next_steps(
         console,
         [
-            "loopfarm issues ready --root <root-id>",
-            "loopfarm issues get <issue-id>",
-            "loopfarm forum read issue:<issue-id> --limit 20",
-            "loopfarm guide --section workflow",
+            "inshallah issues ready --root <root-id>",
+            "inshallah issues get <issue-id>",
+            "inshallah forum read issue:<issue-id> --limit 20",
+            "inshallah guide --section workflow",
         ],
     )
     _guide_cross_link(console)
@@ -845,8 +845,8 @@ def _issues_cmd_list(argv: list[str], pretty: bool, console: Console) -> int:
     if argv and argv[0] in ("-h", "--help"):
         return _print_command_help(
             console,
-            title="loopfarm issues list",
-            usage="loopfarm issues list [--status STATUS] [--tag TAG] [--root ID] [--limit N] [--pretty]",
+            title="inshallah issues list",
+            usage="inshallah issues list [--status STATUS] [--tag TAG] [--root ID] [--limit N] [--pretty]",
             about="List issues from the store with optional status, tag, and subtree filtering.",
             options=[
                 ("--status", "open | in_progress | closed"),
@@ -856,12 +856,12 @@ def _issues_cmd_list(argv: list[str], pretty: bool, console: Console) -> int:
                 ("--pretty", "Indent JSON output"),
             ],
             examples=[
-                "loopfarm issues list --status open",
-                "loopfarm issues list --root loopfarm-ab12cd34 --tag node:agent",
+                "inshallah issues list --status open",
+                "inshallah issues list --root inshallah-ab12cd34 --tag node:agent",
             ],
         )
 
-    p = argparse.ArgumentParser(prog="loopfarm issues list", add_help=False)
+    p = argparse.ArgumentParser(prog="inshallah issues list", add_help=False)
     p.add_argument("--status", choices=("open", "in_progress", "closed"), default=None)
     p.add_argument("--tag", action="append", default=[])
     p.add_argument("--root", default=None)
@@ -892,11 +892,11 @@ def _issues_cmd_get(argv: list[str], pretty: bool, console: Console) -> int:
     if not argv or argv[0] in ("-h", "--help"):
         return _print_command_help(
             console,
-            title="loopfarm issues get",
-            usage="loopfarm issues get <id-or-prefix> [--pretty]",
+            title="inshallah issues get",
+            usage="inshallah issues get <id-or-prefix> [--pretty]",
             about="Fetch a single issue.",
             options=[("--pretty", "Indent JSON output")],
-            examples=["loopfarm issues get loopfarm-ab12cd34", "loopfarm issues get loopfarm-ab12"],
+            examples=["inshallah issues get inshallah-ab12cd34", "inshallah issues get inshallah-ab12"],
         )
 
     store = _issues_store()
@@ -916,9 +916,9 @@ def _issues_cmd_create(argv: list[str], pretty: bool, console: Console) -> int:
     if argv and argv[0] in ("-h", "--help"):
         return _print_command_help(
             console,
-            title="loopfarm issues create",
+            title="inshallah issues create",
             usage=(
-                "loopfarm issues create <title> [--body TEXT] [--parent ID] [--tag TAG] "
+                "inshallah issues create <title> [--body TEXT] [--parent ID] [--tag TAG] "
                 "[--role ROLE] [--cli NAME] [--model NAME] [--reasoning LEVEL] "
                 "[--prompt-path PATH] [--priority N] [--pretty]"
             ),
@@ -936,12 +936,12 @@ def _issues_cmd_create(argv: list[str], pretty: bool, console: Console) -> int:
                 ("--pretty", "Indent JSON output"),
             ],
             examples=[
-                "loopfarm issues create \"Write migration\" -t backend -p 2",
-                "loopfarm issues create \"Break down root\" --parent loopfarm-ab12 --role worker",
+                "inshallah issues create \"Write migration\" -t backend -p 2",
+                "inshallah issues create \"Break down root\" --parent inshallah-ab12 --role worker",
             ],
         )
 
-    p = argparse.ArgumentParser(prog="loopfarm issues create", add_help=False)
+    p = argparse.ArgumentParser(prog="inshallah issues create", add_help=False)
     p.add_argument("title", nargs="?", default=None)
     p.add_argument("--body", "-b", default="")
     p.add_argument("--parent", default=None)
@@ -957,12 +957,12 @@ def _issues_cmd_create(argv: list[str], pretty: bool, console: Console) -> int:
     if not args.title:
         return _error(
             "missing title",
-            recovery=["loopfarm issues create \"Title\" --body \"Details\""],
+            recovery=["inshallah issues create \"Title\" --body \"Details\""],
         )
     if args.priority < 1 or args.priority > 5:
         return _error(
             "priority must be in range 1-5",
-            recovery=["loopfarm issues create \"Title\" --priority 2"],
+            recovery=["inshallah issues create \"Title\" --priority 2"],
         )
 
     tags = list(dict.fromkeys(args.tag))
@@ -998,9 +998,9 @@ def _issues_cmd_update(argv: list[str], pretty: bool, console: Console) -> int:
     if not argv or argv[0] in ("-h", "--help"):
         return _print_command_help(
             console,
-            title="loopfarm issues update",
+            title="inshallah issues update",
             usage=(
-                "loopfarm issues update <id-or-prefix> [--title TEXT] [--body TEXT] "
+                "inshallah issues update <id-or-prefix> [--title TEXT] [--body TEXT] "
                 "[--status STATUS] [--outcome OUTCOME] [--priority N] "
                 "[--add-tag TAG] [--remove-tag TAG] [--role ROLE] [--cli NAME] "
                 "[--model NAME] [--reasoning LEVEL] [--prompt-path PATH] "
@@ -1020,12 +1020,12 @@ def _issues_cmd_update(argv: list[str], pretty: bool, console: Console) -> int:
                 ("--pretty", "Indent JSON output"),
             ],
             examples=[
-                "loopfarm issues update loopfarm-ab12 --status in_progress",
-                "loopfarm issues update loopfarm-ab12 --role worker --model gpt-5.3-codex",
+                "inshallah issues update inshallah-ab12 --status in_progress",
+                "inshallah issues update inshallah-ab12 --role worker --model gpt-5.3-codex",
             ],
         )
 
-    p = argparse.ArgumentParser(prog="loopfarm issues update", add_help=False)
+    p = argparse.ArgumentParser(prog="inshallah issues update", add_help=False)
     p.add_argument("id")
     p.add_argument("--title", default=None)
     p.add_argument("--body", default=None)
@@ -1051,13 +1051,13 @@ def _issues_cmd_update(argv: list[str], pretty: bool, console: Console) -> int:
     if issue is None:
         return _error(
             f"not found: {args.id}",
-            recovery=["loopfarm issues list --limit 20"],
+            recovery=["inshallah issues list --limit 20"],
         )
 
     if args.priority is not None and (args.priority < 1 or args.priority > 5):
         return _error(
             "priority must be in range 1-5",
-            recovery=[f"loopfarm issues update {issue_id} --priority 2"],
+            recovery=[f"inshallah issues update {issue_id} --priority 2"],
         )
 
     fields: dict[str, object] = {}
@@ -1111,7 +1111,7 @@ def _issues_cmd_update(argv: list[str], pretty: bool, console: Console) -> int:
     if not fields:
         return _error(
             "no fields to update",
-            recovery=[f"loopfarm issues update {issue_id} --status in_progress"],
+            recovery=[f"inshallah issues update {issue_id} --status in_progress"],
         )
 
     updated = store.update(issue_id, **fields)
@@ -1123,11 +1123,11 @@ def _issues_cmd_claim(argv: list[str], pretty: bool, console: Console) -> int:
     if not argv or argv[0] in ("-h", "--help"):
         return _print_command_help(
             console,
-            title="loopfarm issues claim",
-            usage="loopfarm issues claim <id-or-prefix> [--pretty]",
+            title="inshallah issues claim",
+            usage="inshallah issues claim <id-or-prefix> [--pretty]",
             about="Mark an open issue as in_progress.",
             options=[("--pretty", "Indent JSON output")],
-            examples=["loopfarm issues claim loopfarm-ab12"],
+            examples=["inshallah issues claim inshallah-ab12"],
         )
 
     store = _issues_store()
@@ -1139,14 +1139,14 @@ def _issues_cmd_claim(argv: list[str], pretty: bool, console: Console) -> int:
     if issue is None:
         return _error(
             f"not found: {argv[0]}",
-            recovery=["loopfarm issues list --status open --limit 20"],
+            recovery=["inshallah issues list --status open --limit 20"],
         )
     if issue["status"] != "open":
         return _error(
             f"cannot claim issue in status={issue['status']}",
             recovery=[
-                f"loopfarm issues get {issue_id}",
-                f"loopfarm issues update {issue_id} --status open",
+                f"inshallah issues get {issue_id}",
+                f"inshallah issues update {issue_id} --status open",
             ],
         )
 
@@ -1160,11 +1160,11 @@ def _issues_cmd_open(argv: list[str], pretty: bool, console: Console) -> int:
     if not argv or argv[0] in ("-h", "--help"):
         return _print_command_help(
             console,
-            title="loopfarm issues open",
-            usage="loopfarm issues open <id-or-prefix> [--pretty]",
+            title="inshallah issues open",
+            usage="inshallah issues open <id-or-prefix> [--pretty]",
             about="Reopen an issue and clear outcome.",
             options=[("--pretty", "Indent JSON output")],
-            examples=["loopfarm issues open loopfarm-ab12"],
+            examples=["inshallah issues open inshallah-ab12"],
         )
 
     store = _issues_store()
@@ -1176,7 +1176,7 @@ def _issues_cmd_open(argv: list[str], pretty: bool, console: Console) -> int:
     if issue is None:
         return _error(
             f"not found: {argv[0]}",
-            recovery=["loopfarm issues list --limit 20"],
+            recovery=["inshallah issues list --limit 20"],
         )
 
     reopened = store.update(issue_id, status="open", outcome=None)
@@ -1188,18 +1188,18 @@ def _issues_cmd_close(argv: list[str], pretty: bool, console: Console) -> int:
     if not argv or argv[0] in ("-h", "--help"):
         return _print_command_help(
             console,
-            title="loopfarm issues close",
-            usage="loopfarm issues close <id-or-prefix> [--outcome OUTCOME] [--pretty]",
+            title="inshallah issues close",
+            usage="inshallah issues close <id-or-prefix> [--outcome OUTCOME] [--pretty]",
             about="Close an issue.",
             options=[
                 ("--outcome", "success | failure | skipped | expanded (default: success)"),
                 ("--pretty", "Indent JSON output"),
             ],
-            examples=["loopfarm issues close loopfarm-ab12 --outcome expanded"],
+            examples=["inshallah issues close inshallah-ab12 --outcome expanded"],
         )
 
     issue_id_raw = argv[0]
-    p = argparse.ArgumentParser(prog="loopfarm issues close", add_help=False)
+    p = argparse.ArgumentParser(prog="inshallah issues close", add_help=False)
     p.add_argument("--outcome", default="success")
     args = p.parse_args(argv[1:])
 
@@ -1217,8 +1217,8 @@ def _issues_cmd_dep(argv: list[str], pretty: bool, console: Console) -> int:
     if not argv or argv[0] in ("-h", "--help"):
         return _print_command_help(
             console,
-            title="loopfarm issues dep",
-            usage="loopfarm issues dep <src-id> <blocks|parent> <dst-id> [--pretty]",
+            title="inshallah issues dep",
+            usage="inshallah issues dep <src-id> <blocks|parent> <dst-id> [--pretty]",
             about="Add a dependency edge between two issues.",
             options=[
                 ("blocks", "Source must close before destination is ready"),
@@ -1226,15 +1226,15 @@ def _issues_cmd_dep(argv: list[str], pretty: bool, console: Console) -> int:
                 ("--pretty", "Indent JSON output"),
             ],
             examples=[
-                "loopfarm issues dep loopfarm-a1 blocks loopfarm-b2",
-                "loopfarm issues dep loopfarm-child parent loopfarm-root",
+                "inshallah issues dep inshallah-a1 blocks inshallah-b2",
+                "inshallah issues dep inshallah-child parent inshallah-root",
             ],
         )
 
     if len(argv) < 3:
         return _error(
-            "usage: loopfarm issues dep <src> <type> <dst>",
-            recovery=["loopfarm issues dep <src-id> blocks <dst-id>"],
+            "usage: inshallah issues dep <src> <type> <dst>",
+            recovery=["inshallah issues dep <src-id> blocks <dst-id>"],
         )
 
     src_raw, dep_type, dst_raw = argv[0], argv[1], argv[2]
@@ -1242,8 +1242,8 @@ def _issues_cmd_dep(argv: list[str], pretty: bool, console: Console) -> int:
         return _error(
             f"invalid dep type: {dep_type} (use 'blocks' or 'parent')",
             recovery=[
-                "loopfarm issues dep <src-id> blocks <dst-id>",
-                "loopfarm issues dep <child-id> parent <parent-id>",
+                "inshallah issues dep <src-id> blocks <dst-id>",
+                "inshallah issues dep <child-id> parent <parent-id>",
             ],
         )
 
@@ -1258,7 +1258,7 @@ def _issues_cmd_dep(argv: list[str], pretty: bool, console: Console) -> int:
     if src == dst:
         return _error(
             "source and destination must be different",
-            recovery=["loopfarm issues dep <src-id> blocks <dst-id>"],
+            recovery=["inshallah issues dep <src-id> blocks <dst-id>"],
         )
 
     store.add_dep(src, dep_type, dst)
@@ -1270,24 +1270,24 @@ def _issues_cmd_undep(argv: list[str], pretty: bool, console: Console) -> int:
     if not argv or argv[0] in ("-h", "--help"):
         return _print_command_help(
             console,
-            title="loopfarm issues undep",
-            usage="loopfarm issues undep <src-id> <blocks|parent> <dst-id> [--pretty]",
+            title="inshallah issues undep",
+            usage="inshallah issues undep <src-id> <blocks|parent> <dst-id> [--pretty]",
             about="Remove a dependency edge.",
             options=[("--pretty", "Indent JSON output")],
-            examples=["loopfarm issues undep loopfarm-a1 blocks loopfarm-b2"],
+            examples=["inshallah issues undep inshallah-a1 blocks inshallah-b2"],
         )
 
     if len(argv) < 3:
         return _error(
-            "usage: loopfarm issues undep <src> <type> <dst>",
-            recovery=["loopfarm issues undep <src-id> blocks <dst-id>"],
+            "usage: inshallah issues undep <src> <type> <dst>",
+            recovery=["inshallah issues undep <src-id> blocks <dst-id>"],
         )
 
     src_raw, dep_type, dst_raw = argv[0], argv[1], argv[2]
     if dep_type not in ("blocks", "parent"):
         return _error(
             f"invalid dep type: {dep_type} (use 'blocks' or 'parent')",
-            recovery=["loopfarm issues undep <src-id> blocks <dst-id>"],
+            recovery=["inshallah issues undep <src-id> blocks <dst-id>"],
         )
 
     store = _issues_store()
@@ -1307,11 +1307,11 @@ def _issues_cmd_children(argv: list[str], pretty: bool, console: Console) -> int
     if not argv or argv[0] in ("-h", "--help"):
         return _print_command_help(
             console,
-            title="loopfarm issues children",
-            usage="loopfarm issues children <id-or-prefix> [--pretty]",
+            title="inshallah issues children",
+            usage="inshallah issues children <id-or-prefix> [--pretty]",
             about="List direct child issues.",
             options=[("--pretty", "Indent JSON output")],
-            examples=["loopfarm issues children loopfarm-root12"],
+            examples=["inshallah issues children inshallah-root12"],
         )
 
     store = _issues_store()
@@ -1329,8 +1329,8 @@ def _issues_cmd_ready(argv: list[str], pretty: bool, console: Console) -> int:
     if argv and argv[0] in ("-h", "--help"):
         return _print_command_help(
             console,
-            title="loopfarm issues ready",
-            usage="loopfarm issues ready [--root ID] [--tag TAG] [--pretty]",
+            title="inshallah issues ready",
+            usage="inshallah issues ready [--root ID] [--tag TAG] [--pretty]",
             about="List open, unblocked, leaf issues tagged node:agent.",
             options=[
                 ("--root", "Scope to subtree rooted at this issue"),
@@ -1338,12 +1338,12 @@ def _issues_cmd_ready(argv: list[str], pretty: bool, console: Console) -> int:
                 ("--pretty", "Indent JSON output"),
             ],
             examples=[
-                "loopfarm issues ready",
-                "loopfarm issues ready --root loopfarm-ab12 --tag backend",
+                "inshallah issues ready",
+                "inshallah issues ready --root inshallah-ab12 --tag backend",
             ],
         )
 
-    p = argparse.ArgumentParser(prog="loopfarm issues ready", add_help=False)
+    p = argparse.ArgumentParser(prog="inshallah issues ready", add_help=False)
     p.add_argument("--root", default=None)
     p.add_argument("--tag", action="append", default=[])
     args = p.parse_args(argv)
@@ -1366,11 +1366,11 @@ def _issues_cmd_validate(argv: list[str], pretty: bool, console: Console) -> int
     if not argv or argv[0] in ("-h", "--help"):
         return _print_command_help(
             console,
-            title="loopfarm issues validate",
-            usage="loopfarm issues validate <root-id-or-prefix> [--pretty]",
+            title="inshallah issues validate",
+            usage="inshallah issues validate <root-id-or-prefix> [--pretty]",
             about="Check if a DAG root has reached a final terminal condition.",
             options=[("--pretty", "Indent JSON output")],
-            examples=["loopfarm issues validate loopfarm-root12"],
+            examples=["inshallah issues validate inshallah-root12"],
         )
 
     store = _issues_store()
@@ -1407,7 +1407,7 @@ _ISSUES_SUBCMDS: dict[str, tuple[Callable[[list[str], bool, Console], int], str]
 
 
 def cmd_issues(argv: list[str], console: Console | None = None) -> int:
-    """Dispatch loopfarm issues subcommands."""
+    """Dispatch inshallah issues subcommands."""
     pretty = "--pretty" in argv
     argv = [arg for arg in argv if arg != "--pretty"]
 
@@ -1421,7 +1421,7 @@ def cmd_issues(argv: list[str], console: Console | None = None) -> int:
     if entry is None:
         return _error(
             f"unknown subcommand: {sub}",
-            recovery=["loopfarm issues --help", "loopfarm guide --section workflow"],
+            recovery=["inshallah issues --help", "inshallah guide --section workflow"],
         )
 
     handler, _ = entry
@@ -1440,7 +1440,7 @@ def _forum_store() -> ForumStore:
 def _print_forum_help(console: Console) -> int:
     console.print(Panel.fit(
         "Forum messages for cross-agent coordination. Data commands return JSON.",
-        title="loopfarm forum",
+        title="inshallah forum",
         border_style="cyan",
     ))
 
@@ -1451,13 +1451,13 @@ def _print_forum_help(console: Console) -> int:
     table.add_row("read", "Read recent messages from a topic")
     table.add_row("topics", "List topics with message counts and latest activity")
     console.print(table)
-    console.print(Text("Run `loopfarm forum <command> --help` for details.", style="dim"))
+    console.print(Text("Run `inshallah forum <command> --help` for details.", style="dim"))
     _print_next_steps(
         console,
         [
-            "loopfarm forum read issue:<issue-id> --limit 20",
-            "loopfarm forum post issue:<issue-id> -m \"status update\" --author worker",
-            "loopfarm guide --section workflow",
+            "inshallah forum read issue:<issue-id> --limit 20",
+            "inshallah forum post issue:<issue-id> -m \"status update\" --author worker",
+            "inshallah guide --section workflow",
         ],
     )
     _guide_cross_link(console)
@@ -1468,8 +1468,8 @@ def _forum_cmd_post(argv: list[str], pretty: bool, console: Console) -> int:
     if not argv or argv[0] in ("-h", "--help"):
         return _print_command_help(
             console,
-            title="loopfarm forum post",
-            usage="loopfarm forum post <topic> -m <message> [--author NAME] [--pretty]",
+            title="inshallah forum post",
+            usage="inshallah forum post <topic> -m <message> [--author NAME] [--pretty]",
             about="Post a message to a forum topic.",
             options=[
                 ("<topic>", "Topic key, e.g. issue:<id> or research:roles"),
@@ -1478,11 +1478,11 @@ def _forum_cmd_post(argv: list[str], pretty: bool, console: Console) -> int:
                 ("--pretty", "Indent JSON output"),
             ],
             examples=[
-                "loopfarm forum post issue:loopfarm-ab12 -m \"Waiting on DB migration\" --author worker",
+                "inshallah forum post issue:inshallah-ab12 -m \"Waiting on DB migration\" --author worker",
             ],
         )
 
-    p = argparse.ArgumentParser(prog="loopfarm forum post", add_help=False)
+    p = argparse.ArgumentParser(prog="inshallah forum post", add_help=False)
     p.add_argument("topic")
     p.add_argument("--message", "-m", required=True)
     p.add_argument("--author", default="system")
@@ -1498,17 +1498,17 @@ def _forum_cmd_read(argv: list[str], pretty: bool, console: Console) -> int:
     if not argv or argv[0] in ("-h", "--help"):
         return _print_command_help(
             console,
-            title="loopfarm forum read",
-            usage="loopfarm forum read <topic> [--limit N] [--pretty]",
+            title="inshallah forum read",
+            usage="inshallah forum read <topic> [--limit N] [--pretty]",
             about="Read messages from a topic in chronological order.",
             options=[
                 ("--limit", "Maximum messages to return (default: 50)"),
                 ("--pretty", "Indent JSON output"),
             ],
-            examples=["loopfarm forum read issue:loopfarm-ab12 --limit 20"],
+            examples=["inshallah forum read issue:inshallah-ab12 --limit 20"],
         )
 
-    p = argparse.ArgumentParser(prog="loopfarm forum read", add_help=False)
+    p = argparse.ArgumentParser(prog="inshallah forum read", add_help=False)
     p.add_argument("topic")
     p.add_argument("--limit", type=int, default=50)
     args = p.parse_args(argv)
@@ -1516,7 +1516,7 @@ def _forum_cmd_read(argv: list[str], pretty: bool, console: Console) -> int:
     if args.limit < 1:
         return _error(
             "limit must be >= 1",
-            recovery=["loopfarm forum read issue:<issue-id> --limit 20"],
+            recovery=["inshallah forum read issue:<issue-id> --limit 20"],
         )
 
     store = _forum_store()
@@ -1529,8 +1529,8 @@ def _forum_cmd_topics(argv: list[str], pretty: bool, console: Console) -> int:
     if argv and argv[0] in ("-h", "--help"):
         return _print_command_help(
             console,
-            title="loopfarm forum topics",
-            usage="loopfarm forum topics [--prefix PREFIX] [--limit N] [--pretty]",
+            title="inshallah forum topics",
+            usage="inshallah forum topics [--prefix PREFIX] [--limit N] [--pretty]",
             about="List active forum topics sorted by most recent message.",
             options=[
                 ("--prefix", "Only include topics starting with this prefix"),
@@ -1538,12 +1538,12 @@ def _forum_cmd_topics(argv: list[str], pretty: bool, console: Console) -> int:
                 ("--pretty", "Indent JSON output"),
             ],
             examples=[
-                "loopfarm forum topics",
-                "loopfarm forum topics --prefix issue: --limit 20",
+                "inshallah forum topics",
+                "inshallah forum topics --prefix issue: --limit 20",
             ],
         )
 
-    p = argparse.ArgumentParser(prog="loopfarm forum topics", add_help=False)
+    p = argparse.ArgumentParser(prog="inshallah forum topics", add_help=False)
     p.add_argument("--prefix", default=None)
     p.add_argument("--limit", type=int, default=100)
     args = p.parse_args(argv)
@@ -1551,7 +1551,7 @@ def _forum_cmd_topics(argv: list[str], pretty: bool, console: Console) -> int:
     if args.limit < 1:
         return _error(
             "limit must be >= 1",
-            recovery=["loopfarm forum topics --limit 20"],
+            recovery=["inshallah forum topics --limit 20"],
         )
 
     store = _forum_store()
@@ -1570,7 +1570,7 @@ _FORUM_SUBCMDS: dict[str, tuple[Callable[[list[str], bool, Console], int], str]]
 
 
 def cmd_forum(argv: list[str], console: Console | None = None) -> int:
-    """Dispatch loopfarm forum subcommands."""
+    """Dispatch inshallah forum subcommands."""
     pretty = "--pretty" in argv
     argv = [arg for arg in argv if arg != "--pretty"]
 
@@ -1584,7 +1584,7 @@ def cmd_forum(argv: list[str], console: Console | None = None) -> int:
     if entry is None:
         return _error(
             f"unknown subcommand: {sub}",
-            recovery=["loopfarm forum --help", "loopfarm guide --section workflow"],
+            recovery=["inshallah forum --help", "inshallah guide --section workflow"],
         )
 
     handler, _ = entry
@@ -1600,42 +1600,42 @@ _GUIDE_CONCEPTS: list[tuple[str, str, str]] = [
     (
         "issue",
         "A tracked unit of work in the DAG. Root issues represent goals; child issues represent decomposed tasks.",
-        "loopfarm issues get <id> (shows status, deps, role routing, and outcome).",
+        "inshallah issues get <id> (shows status, deps, role routing, and outcome).",
     ),
     (
         "parent edge",
         "Hierarchy edge from child to parent (`child --parent--> parent`).",
-        "loopfarm issues children <parent-id> (shows direct children).",
+        "inshallah issues children <parent-id> (shows direct children).",
     ),
     (
         "blocks edge",
         "Ordering edge from prerequisite to dependent (`a --blocks--> b`). `b` is not ready until `a` closes.",
-        "loopfarm issues dep <a> blocks <b> (creates ordering).",
+        "inshallah issues dep <a> blocks <b> (creates ordering).",
     ),
     (
         "leaf issue",
         "An issue with no open children. Leaves are executable work items.",
-        "loopfarm issues ready --root <root-id> (returns executable leaves only).",
+        "inshallah issues ready --root <root-id> (returns executable leaves only).",
     ),
     (
         "ready issue",
         "An open, unblocked leaf issue tagged `node:agent`.",
-        "loopfarm issues ready --root <root-id> (current queue).",
+        "inshallah issues ready --root <root-id> (current queue).",
     ),
     (
         "roles",
         "Routing metadata for which agent prompt/config should execute an issue (for example `worker` or `reviewer`).",
-        "loopfarm roles --table and loopfarm issues update <id> --role <name>.",
+        "inshallah roles --table and inshallah issues update <id> --role <name>.",
     ),
     (
         "statuses",
         "`open` (queued), `in_progress` (claimed), `closed` (finished with an outcome).",
-        "loopfarm issues update <id> --status in_progress.",
+        "inshallah issues update <id> --status in_progress.",
     ),
     (
         "outcomes",
         "`success`, `failure`, `skipped`, `expanded` (decomposed into child work).",
-        "loopfarm issues close <id> --outcome expanded.",
+        "inshallah issues close <id> --outcome expanded.",
     ),
 ]
 
@@ -1643,55 +1643,55 @@ _GUIDE_CONCEPTS: list[tuple[str, str, str]] = [
 _GUIDE_WORKFLOW: list[tuple[str, str, str]] = [
     (
         "Initialize state",
-        "loopfarm init",
-        "Creates `.loopfarm/` stores, prompt templates, role files, and logs directory.",
+        "inshallah init",
+        "Creates `.inshallah/` stores, prompt templates, role files, and logs directory.",
     ),
     (
         "Inspect execution roles",
-        "loopfarm roles --table",
+        "inshallah roles --table",
         "Shows available role templates and routing defaults (`cli`, `model`, `reasoning`).",
     ),
     (
         "Start orchestration",
-        "loopfarm run \"Break down and execute this goal\"",
+        "inshallah run \"Break down and execute this goal\"",
         "Creates a root issue and starts the DAG loop.",
     ),
     (
         "Observe decomposition",
-        "loopfarm issues children <root-id>",
+        "inshallah issues children <root-id>",
         "Shows child issues created by the orchestrator via `parent` edges.",
     ),
     (
         "Pick executable work",
-        "loopfarm issues ready --root <root-id>",
+        "inshallah issues ready --root <root-id>",
         "Lists the current ready queue (open + unblocked + leaf).",
     ),
     (
         "Execute one atomic issue",
-        "loopfarm issues get <issue-id> && loopfarm forum read issue:<issue-id> --limit 20",
+        "inshallah issues get <issue-id> && inshallah forum read issue:<issue-id> --limit 20",
         "Gives full issue context plus recent coordination notes before running the assigned role.",
     ),
     (
         "Close or expand work",
-        "loopfarm issues close <issue-id> --outcome success",
+        "inshallah issues close <issue-id> --outcome success",
         "Workers close with terminal outcomes; orchestrators close with `expanded` after decomposition.",
     ),
     (
         "Review pass (optional role)",
-        "loopfarm forum read issue:<issue-id> --limit 50",
+        "inshallah forum read issue:<issue-id> --limit 50",
         "Reviewer activity is logged in the issue topic; reviewer can keep success or expand for targeted fixes.",
     ),
     (
         "Validate DAG completion",
-        "loopfarm issues validate <root-id>",
+        "inshallah issues validate <root-id>",
         "Returns `is_final` and `reason` so you know whether work is done or still in progress.",
     ),
 ]
 
 
 def _print_guide_plain(console: Console, section: str) -> None:
-    console.print("loopfarm guide")
-    console.print("Mental model and workflow for running loopfarm from CLI only.")
+    console.print("inshallah guide")
+    console.print("Mental model and workflow for running inshallah from CLI only.")
 
     if section in ("all", "concepts"):
         console.print("")
@@ -1712,8 +1712,8 @@ def _print_guide_plain(console: Console, section: str) -> None:
 def _print_guide_rich(console: Console, section: str) -> None:
     console.print(
         Panel.fit(
-            "Understand loopfarm's DAG model and execute the full workflow from the CLI.",
-            title="loopfarm guide",
+            "Understand inshallah's DAG model and execute the full workflow from the CLI.",
+            title="inshallah guide",
             border_style="cyan",
         )
     )
@@ -1738,8 +1738,8 @@ def _print_guide_rich(console: Console, section: str) -> None:
 
     console.print(
         Text(
-            "Tip: `loopfarm issues ready --root <root-id>` is the executable queue; "
-            "`loopfarm issues validate <root-id>` is the completion gate.",
+            "Tip: `inshallah issues ready --root <root-id>` is the executable queue; "
+            "`inshallah issues validate <root-id>` is the completion gate.",
             style="dim",
         )
     )
@@ -1750,22 +1750,22 @@ def cmd_guide(argv: list[str], console: Console | None = None) -> int:
     if argv and argv[0] in ("-h", "--help"):
         return _print_command_help(
             console,
-            title="loopfarm guide",
-            usage="loopfarm guide [--section all|concepts|workflow] [--plain]",
-            about="Show an in-CLI onboarding guide for loopfarm mental model and workflow.",
+            title="inshallah guide",
+            usage="inshallah guide [--section all|concepts|workflow] [--plain]",
+            about="Show an in-CLI onboarding guide for inshallah mental model and workflow.",
             options=[
                 ("--section", "all | concepts | workflow (default: all)"),
                 ("--plain", "Force plain text rendering"),
             ],
             examples=[
-                "loopfarm guide",
-                "loopfarm guide --section concepts",
-                "loopfarm guide --plain",
+                "inshallah guide",
+                "inshallah guide --section concepts",
+                "inshallah guide --plain",
             ],
             include_guide=False,
         )
 
-    p = argparse.ArgumentParser(prog="loopfarm guide", add_help=False)
+    p = argparse.ArgumentParser(prog="inshallah guide", add_help=False)
     p.add_argument("--section", choices=("all", "concepts", "workflow"), default="all")
     p.add_argument("--plain", action="store_true")
     args = p.parse_args(argv)
@@ -1785,7 +1785,7 @@ def cmd_guide(argv: list[str], console: Console | None = None) -> int:
 
 def _print_help(console: Console) -> None:
     help_text = Text()
-    help_text.append("loopfarm", style="bold")
+    help_text.append("inshallah", style="bold")
     help_text.append(f" {__version__}", style="dim")
     help_text.append(" - DAG-based loop runner for agentic workflows")
     console.print(help_text)
@@ -1794,35 +1794,35 @@ def _print_help(console: Console) -> None:
     cmds = Table(show_header=False, expand=False, show_edge=False, pad_edge=False, box=None)
     cmds.add_column("Command", style="bold cyan")
     cmds.add_column("Description")
-    cmds.add_row("loopfarm init", "Initialize .loopfarm state, templates, and logs")
-    cmds.add_row("loopfarm guide", "Show mental model + workflow onboarding guide")
-    cmds.add_row("loopfarm status", "Summarize roots, ready work, roles, and forum activity")
-    cmds.add_row("loopfarm run <prompt>", "Create root issue and run the DAG")
-    cmds.add_row("loopfarm resume <root-id>", "Resume an interrupted DAG run")
-    cmds.add_row("loopfarm replay <issue-id>", "Replay a logged backend run")
-    cmds.add_row("loopfarm roles", "List role templates (JSON by default)")
-    cmds.add_row("loopfarm issues <command>", "Issue DAG operations (create/update/close/deps/ready)")
-    cmds.add_row("loopfarm forum <command>", "Forum operations (post/read/topics)")
-    cmds.add_row("loopfarm serve", "Start the web interface")
+    cmds.add_row("inshallah init", "Initialize .inshallah state, templates, and logs")
+    cmds.add_row("inshallah guide", "Show mental model + workflow onboarding guide")
+    cmds.add_row("inshallah status", "Summarize roots, ready work, roles, and forum activity")
+    cmds.add_row("inshallah run <prompt>", "Create root issue and run the DAG")
+    cmds.add_row("inshallah resume <root-id>", "Resume an interrupted DAG run")
+    cmds.add_row("inshallah replay <issue-id>", "Replay a logged backend run")
+    cmds.add_row("inshallah roles", "List role templates (JSON by default)")
+    cmds.add_row("inshallah issues <command>", "Issue DAG operations (create/update/close/deps/ready)")
+    cmds.add_row("inshallah forum <command>", "Forum operations (post/read/topics)")
+    cmds.add_row("inshallah serve", "Start the web interface")
     console.print(cmds)
     console.print()
 
     quick = Table(title="Quick Start", show_header=False, expand=False, show_edge=False, pad_edge=False)
     quick.add_column("Step", style="bold")
     quick.add_column("Command")
-    quick.add_row("1", "loopfarm init")
-    quick.add_row("2", "loopfarm guide")
-    quick.add_row("3", "loopfarm roles --table")
-    quick.add_row("4", "loopfarm run \"Break down and execute this goal\"")
-    quick.add_row("5", "loopfarm issues ready --root <root-id>")
+    quick.add_row("1", "inshallah init")
+    quick.add_row("2", "inshallah guide")
+    quick.add_row("3", "inshallah roles --table")
+    quick.add_row("4", "inshallah run \"Break down and execute this goal\"")
+    quick.add_row("5", "inshallah issues ready --root <root-id>")
     console.print(quick)
-    console.print(Text("Run `loopfarm <command> --help` for command-specific details.", style="dim"))
+    console.print(Text("Run `inshallah <command> --help` for command-specific details.", style="dim"))
     _guide_cross_link(console)
 
 
 def _dispatch_prompt_shorthand(raw: list[str], console: Console) -> int:
-    """Support legacy shorthand: loopfarm <prompt words...>."""
-    args = _run_parser(prog="loopfarm").parse_args(raw)
+    """Support legacy shorthand: inshallah <prompt words...>."""
+    args = _run_parser(prog="inshallah").parse_args(raw)
     return cmd_run(args, console)
 
 
@@ -1831,13 +1831,13 @@ def _unknown_command_recovery(console: Console, command: str) -> int:
     _print_next_steps(
         console,
         [
-            "loopfarm --help",
-            "loopfarm guide",
-            "loopfarm roles --pretty",
+            "inshallah --help",
+            "inshallah guide",
+            "inshallah roles --pretty",
         ],
         title="Recovery",
     )
-    console.print(Text('Example: loopfarm run "Summarize current ready issues".', style="dim"))
+    console.print(Text('Example: inshallah run "Summarize current ready issues".', style="dim"))
     return 1
 
 
@@ -1846,7 +1846,7 @@ def main(argv: list[str] | None = None) -> None:
     console = Console()
 
     if "--version" in raw:
-        console.print(Text(f"loopfarm {__version__}", style="bold"))
+        console.print(Text(f"inshallah {__version__}", style="bold"))
         sys.exit(0)
 
     if not raw or raw == ["--help"] or raw == ["-h"]:

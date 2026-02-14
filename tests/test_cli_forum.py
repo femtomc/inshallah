@@ -1,4 +1,4 @@
-"""Tests for loopfarm forum CLI subcommands."""
+"""Tests for inshallah forum CLI subcommands."""
 
 from __future__ import annotations
 
@@ -6,19 +6,19 @@ import json
 from pathlib import Path
 from unittest.mock import patch
 
-from loopfarm.cli import cmd_forum
+from inshallah.cli import cmd_forum
 
 
 def _setup(tmp_path: Path) -> None:
     (tmp_path / ".git").mkdir()
-    lf = tmp_path / ".loopfarm"
+    lf = tmp_path / ".inshallah"
     lf.mkdir()
     (lf / "issues.jsonl").touch()
     (lf / "forum.jsonl").touch()
 
 
 def _run(tmp_path: Path, argv: list[str], capsys) -> tuple[int, object]:
-    with patch("loopfarm.cli._find_repo_root", return_value=tmp_path):
+    with patch("inshallah.cli._find_repo_root", return_value=tmp_path):
         rc = cmd_forum(argv)
     raw = capsys.readouterr().out
     try:
@@ -62,7 +62,7 @@ class TestDispatcher:
         _setup(tmp_path)
         rc, out = _run(tmp_path, [], capsys)
         assert rc == 0
-        assert "loopfarm forum" in out
+        assert "inshallah forum" in out
 
     def test_unknown_subcommand(self, tmp_path: Path, capsys) -> None:
         _setup(tmp_path)

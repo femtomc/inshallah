@@ -8,7 +8,7 @@ from .jsonl import now_ts, read_jsonl, write_jsonl
 
 
 class ForumStore:
-    """JSONL-backed message forum stored in .loopfarm/forum.jsonl."""
+    """JSONL-backed message forum stored in .inshallah/forum.jsonl."""
 
     def __init__(self, path: Path) -> None:
         self.path = path
@@ -16,7 +16,7 @@ class ForumStore:
     @classmethod
     def from_workdir(cls, root: Path | None = None) -> ForumStore:
         root = root or Path.cwd()
-        return cls(root / ".loopfarm" / "forum.jsonl")
+        return cls(root / ".inshallah" / "forum.jsonl")
 
     def post(self, topic: str, body: str, author: str = "system") -> dict:
         msg = {

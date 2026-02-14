@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from loopfarm.store import IssueStore
+from inshallah.store import IssueStore
 
 
 def _store(tmp_path: Path) -> IssueStore:
-    lf = tmp_path / ".loopfarm"
+    lf = tmp_path / ".inshallah"
     lf.mkdir(parents=True, exist_ok=True)
     (lf / "issues.jsonl").touch()
     return IssueStore(lf / "issues.jsonl")

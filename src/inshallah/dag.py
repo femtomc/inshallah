@@ -60,7 +60,7 @@ class DagRunner:
         prompt_path: str | None = None
 
         # Tier 1: orchestrator.md frontmatter (global defaults)
-        orchestrator = self.repo_root / ".loopfarm" / "orchestrator.md"
+        orchestrator = self.repo_root / ".inshallah" / "orchestrator.md"
         if orchestrator.exists():
             meta = read_prompt_meta(orchestrator)
             cli = meta.get("cli", cli)
@@ -77,7 +77,7 @@ class DagRunner:
 
         # Tier 2: role file frontmatter (role-specific defaults)
         if spec and spec.role:
-            role_path = self.repo_root / ".loopfarm" / "roles" / f"{spec.role}.md"
+            role_path = self.repo_root / ".inshallah" / "roles" / f"{spec.role}.md"
             if role_path.exists():
                 role_meta = read_prompt_meta(role_path)
                 cli = role_meta.get("cli", cli)
@@ -109,7 +109,7 @@ class DagRunner:
                 rendered += "\n\n" + issue["body"]
 
         rendered += (
-            f"\n\n## Loopfarm Context\n"
+            f"\n\n## Inshallah Context\n"
             f"Root: {root_id}\n"
             f"Assigned issue: {issue['id']}\n"
         )
@@ -135,7 +135,7 @@ class DagRunner:
         backend = get_backend(cli)
         formatter = get_formatter(cli, self.console)
 
-        tee_dir = self.repo_root / ".loopfarm" / "logs"
+        tee_dir = self.repo_root / ".inshallah" / "logs"
         tee_dir.mkdir(parents=True, exist_ok=True)
         suffix = f".{log_suffix}" if log_suffix else ""
         tee_path = tee_dir / f"{issue['id']}{suffix}.jsonl"
@@ -162,7 +162,7 @@ class DagRunner:
     # ------------------------------------------------------------------
 
     def _has_reviewer(self) -> bool:
-        return (self.repo_root / ".loopfarm" / "roles" / "reviewer.md").exists()
+        return (self.repo_root / ".inshallah" / "roles" / "reviewer.md").exists()
 
     def _maybe_review(
         self, issue: dict, root_id: str, step: int

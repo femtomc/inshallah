@@ -6,12 +6,12 @@ import json
 from pathlib import Path
 from unittest.mock import MagicMock, call, patch
 
-from loopfarm.dag import DagRunner
-from loopfarm.store import ForumStore, IssueStore
+from inshallah.dag import DagRunner
+from inshallah.store import ForumStore, IssueStore
 
 
 def _setup_stores(tmp_path: Path) -> tuple[IssueStore, ForumStore]:
-    lf = tmp_path / ".loopfarm"
+    lf = tmp_path / ".inshallah"
     lf.mkdir(parents=True, exist_ok=True)
     (lf / "issues.jsonl").touch()
     (lf / "forum.jsonl").touch()
@@ -20,13 +20,13 @@ def _setup_stores(tmp_path: Path) -> tuple[IssueStore, ForumStore]:
 
 
 def _write_orchestrator(tmp_path: Path, frontmatter: str, body: str) -> None:
-    lf = tmp_path / ".loopfarm"
+    lf = tmp_path / ".inshallah"
     lf.mkdir(parents=True, exist_ok=True)
     (lf / "orchestrator.md").write_text(f"---\n{frontmatter}---\n{body}")
 
 
 def _write_role(tmp_path: Path, name: str, frontmatter: str, body: str) -> None:
-    roles_dir = tmp_path / ".loopfarm" / "roles"
+    roles_dir = tmp_path / ".inshallah" / "roles"
     roles_dir.mkdir(parents=True, exist_ok=True)
     (roles_dir / f"{name}.md").write_text(f"---\n{frontmatter}---\n{body}")
 
@@ -41,8 +41,8 @@ class TestThreeTierResolution:
 
         runner = DagRunner(store, forum, tmp_path)
 
-        with patch("loopfarm.dag.get_backend") as mock_backend, \
-             patch("loopfarm.dag.get_formatter") as mock_formatter:
+        with patch("inshallah.dag.get_backend") as mock_backend, \
+             patch("inshallah.dag.get_formatter") as mock_formatter:
             mock_proc = MagicMock()
             mock_proc.run.return_value = 0
             mock_backend.return_value = mock_proc
@@ -66,8 +66,8 @@ class TestThreeTierResolution:
 
         runner = DagRunner(store, forum, tmp_path)
 
-        with patch("loopfarm.dag.get_backend") as mock_backend, \
-             patch("loopfarm.dag.get_formatter") as mock_formatter:
+        with patch("inshallah.dag.get_backend") as mock_backend, \
+             patch("inshallah.dag.get_formatter") as mock_formatter:
             mock_proc = MagicMock()
             mock_proc.run.return_value = 0
             mock_backend.return_value = mock_proc
@@ -92,8 +92,8 @@ class TestThreeTierResolution:
 
         runner = DagRunner(store, forum, tmp_path)
 
-        with patch("loopfarm.dag.get_backend") as mock_backend, \
-             patch("loopfarm.dag.get_formatter") as mock_formatter:
+        with patch("inshallah.dag.get_backend") as mock_backend, \
+             patch("inshallah.dag.get_formatter") as mock_formatter:
             mock_proc = MagicMock()
             mock_proc.run.return_value = 0
             mock_backend.return_value = mock_proc
@@ -118,8 +118,8 @@ class TestThreeTierResolution:
 
         runner = DagRunner(store, forum, tmp_path)
 
-        with patch("loopfarm.dag.get_backend") as mock_backend, \
-             patch("loopfarm.dag.get_formatter") as mock_formatter:
+        with patch("inshallah.dag.get_backend") as mock_backend, \
+             patch("inshallah.dag.get_formatter") as mock_formatter:
             mock_proc = MagicMock()
             mock_proc.run.return_value = 0
             mock_backend.return_value = mock_proc
@@ -144,8 +144,8 @@ class TestThreeTierResolution:
 
         runner = DagRunner(store, forum, tmp_path)
 
-        with patch("loopfarm.dag.get_backend") as mock_backend, \
-             patch("loopfarm.dag.get_formatter") as mock_formatter:
+        with patch("inshallah.dag.get_backend") as mock_backend, \
+             patch("inshallah.dag.get_formatter") as mock_formatter:
             mock_proc = MagicMock()
             mock_proc.run.return_value = 0
             mock_backend.return_value = mock_proc
@@ -171,8 +171,8 @@ class TestThreeTierResolution:
 
         runner = DagRunner(store, forum, tmp_path)
 
-        with patch("loopfarm.dag.get_backend") as mock_backend, \
-             patch("loopfarm.dag.get_formatter") as mock_formatter:
+        with patch("inshallah.dag.get_backend") as mock_backend, \
+             patch("inshallah.dag.get_formatter") as mock_formatter:
             mock_proc = MagicMock()
             mock_proc.run.return_value = 0
             mock_backend.return_value = mock_proc
@@ -198,8 +198,8 @@ class TestThreeTierResolution:
 
         runner = DagRunner(store, forum, tmp_path)
 
-        with patch("loopfarm.dag.get_backend") as mock_backend, \
-             patch("loopfarm.dag.get_formatter") as mock_formatter:
+        with patch("inshallah.dag.get_backend") as mock_backend, \
+             patch("inshallah.dag.get_formatter") as mock_formatter:
             mock_proc = MagicMock()
             mock_proc.run.return_value = 0
             mock_backend.return_value = mock_proc
@@ -226,8 +226,8 @@ class TestThreeTierResolution:
 
         runner = DagRunner(store, forum, tmp_path)
 
-        with patch("loopfarm.dag.get_backend") as mock_backend, \
-             patch("loopfarm.dag.get_formatter") as mock_formatter:
+        with patch("inshallah.dag.get_backend") as mock_backend, \
+             patch("inshallah.dag.get_formatter") as mock_formatter:
             mock_proc = MagicMock()
             mock_proc.run.return_value = 0
             mock_backend.return_value = mock_proc
@@ -293,8 +293,8 @@ class TestReviewPhase:
                 store.add_dep(child["id"], "parent", issue_id)
             return 0
 
-        with patch("loopfarm.dag.get_backend") as mock_backend, \
-             patch("loopfarm.dag.get_formatter") as mock_formatter:
+        with patch("inshallah.dag.get_backend") as mock_backend, \
+             patch("inshallah.dag.get_formatter") as mock_formatter:
             mock_proc = MagicMock()
             mock_proc.run.side_effect = backend_side_effect
             mock_backend.return_value = mock_proc

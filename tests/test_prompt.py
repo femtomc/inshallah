@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from loopfarm.prompt import build_role_catalog, list_roles_json, render
+from inshallah.prompt import build_role_catalog, list_roles_json, render
 
 
 def _write_role(tmp_path: Path, name: str, frontmatter: str, body: str) -> None:
-    roles_dir = tmp_path / ".loopfarm" / "roles"
+    roles_dir = tmp_path / ".inshallah" / "roles"
     roles_dir.mkdir(parents=True, exist_ok=True)
     (roles_dir / f"{name}.md").write_text(f"---\n{frontmatter}---\n{body}")
 
@@ -18,7 +18,7 @@ class TestBuildRoleCatalog:
         assert build_role_catalog(tmp_path) == ""
 
     def test_empty_roles_dir(self, tmp_path: Path) -> None:
-        (tmp_path / ".loopfarm" / "roles").mkdir(parents=True)
+        (tmp_path / ".inshallah" / "roles").mkdir(parents=True)
         assert build_role_catalog(tmp_path) == ""
 
     def test_single_role(self, tmp_path: Path) -> None:
@@ -30,7 +30,7 @@ class TestBuildRoleCatalog:
         assert "cli: codex" in catalog
         assert "model: gpt-5.2" in catalog
         assert "reasoning: xhigh" in catalog
-        assert "prompt: .loopfarm/roles/worker.md" in catalog
+        assert "prompt: .inshallah/roles/worker.md" in catalog
 
     def test_multiple_roles_sorted(self, tmp_path: Path) -> None:
         _write_role(tmp_path, "worker", "cli: codex\n", "Worker description.\n")
@@ -42,7 +42,7 @@ class TestBuildRoleCatalog:
         assert rev_pos < work_pos
 
     def test_role_with_no_frontmatter_keys(self, tmp_path: Path) -> None:
-        roles_dir = tmp_path / ".loopfarm" / "roles"
+        roles_dir = tmp_path / ".inshallah" / "roles"
         roles_dir.mkdir(parents=True)
         (roles_dir / "plain.md").write_text("Just a plain role.\n")
         catalog = build_role_catalog(tmp_path)
@@ -79,7 +79,7 @@ class TestListRolesJson:
         roles = list_roles_json(tmp_path)
         assert roles == [{
             "name": "worker",
-            "prompt_path": ".loopfarm/roles/worker.md",
+            "prompt_path": ".inshallah/roles/worker.md",
             "cli": "codex",
             "model": "",
             "reasoning": "",

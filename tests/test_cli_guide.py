@@ -1,11 +1,11 @@
-"""Tests for loopfarm guide CLI command."""
+"""Tests for inshallah guide CLI command."""
 
 from __future__ import annotations
 
 import pytest
 from rich.console import Console
 
-from loopfarm.cli import cmd_guide, main
+from inshallah.cli import cmd_guide, main
 
 
 def test_guide_help_has_usage_and_options() -> None:
@@ -15,7 +15,7 @@ def test_guide_help_has_usage_and_options() -> None:
 
     assert rc == 0
     rendered = console.export_text()
-    assert "Usage: loopfarm guide" in rendered
+    assert "Usage: inshallah guide" in rendered
     assert "--section" in rendered
     assert "--plain" in rendered
 
@@ -38,9 +38,9 @@ def test_guide_plain_output_covers_concepts_and_workflow() -> None:
         "outcomes",
     ):
         assert concept in rendered
-    assert "loopfarm init" in rendered
-    assert "loopfarm run" in rendered
-    assert "loopfarm issues validate <root-id>" in rendered
+    assert "inshallah init" in rendered
+    assert "inshallah run" in rendered
+    assert "inshallah issues validate <root-id>" in rendered
     assert "interpretation:" in rendered
 
 
@@ -64,7 +64,7 @@ def test_guide_section_workflow_only() -> None:
     rendered = console.export_text()
     assert "End-to-end workflow" in rendered
     assert "Core concepts" not in rendered
-    assert "loopfarm issues ready --root <root-id>" in rendered
+    assert "inshallah issues ready --root <root-id>" in rendered
 
 
 def test_guide_plain_flag_forces_plain_renderer() -> None:

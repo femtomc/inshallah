@@ -49,8 +49,8 @@ def read_prompt_meta(path: str | Path) -> dict:
 
 
 def build_role_catalog(repo_root: Path) -> str:
-    """Build a markdown catalog of available roles from .loopfarm/roles/*.md."""
-    roles_dir = repo_root / ".loopfarm" / "roles"
+    """Build a markdown catalog of available roles from .inshallah/roles/*.md."""
+    roles_dir = repo_root / ".inshallah" / "roles"
     if not roles_dir.is_dir():
         return ""
     sections: list[str] = []
@@ -78,8 +78,8 @@ def build_role_catalog(repo_root: Path) -> str:
 
 
 def list_roles_json(repo_root: Path) -> list[dict]:
-    """Return structured role data from .loopfarm/roles/*.md."""
-    roles_dir = repo_root / ".loopfarm" / "roles"
+    """Return structured role data from .inshallah/roles/*.md."""
+    roles_dir = repo_root / ".inshallah" / "roles"
     if not roles_dir.is_dir():
         return []
     result: list[dict] = []
