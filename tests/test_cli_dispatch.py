@@ -7,14 +7,12 @@ import pytest
 from inshallah.cli import main
 
 
-def test_main_unknown_single_token_shows_recovery(capsys) -> None:
-    with pytest.raises(SystemExit) as ex:
+def test_main_single_token_dispatches_as_run(capsys) -> None:
+    """A single unknown token is treated as a run prompt, not an error."""
+    with pytest.raises(SystemExit):
         main(["badcommand"])
 
-    assert ex.value.code == 1
     rendered = capsys.readouterr().out
-    assert "Unknown or ambiguous command: badcommand" in rendered
-    assert "inshallah --help" in rendered
-    assert "inshallah guide" in rendered
-    assert "inshallah roles --pretty" in rendered
-    assert 'Example: inshallah run "Summarize current ready issues".' in rendered
+    # Should dispatch to cmd_run (creates a root issue), not error recovery
+    assert "Root Issue" in rendered
+    assert "badcommand" in rendered

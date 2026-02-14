@@ -1826,20 +1826,6 @@ def _dispatch_prompt_shorthand(raw: list[str], console: Console) -> int:
     return cmd_run(args, console)
 
 
-def _unknown_command_recovery(console: Console, command: str) -> int:
-    console.print(Text(f"Unknown or ambiguous command: {command}", style="red"))
-    _print_next_steps(
-        console,
-        [
-            "inshallah --help",
-            "inshallah guide",
-            "inshallah roles --pretty",
-        ],
-        title="Recovery",
-    )
-    console.print(Text('Example: inshallah run "Summarize current ready issues".', style="dim"))
-    return 1
-
 
 def main(argv: list[str] | None = None) -> None:
     raw = argv if argv is not None else sys.argv[1:]
@@ -1886,10 +1872,7 @@ def main(argv: list[str] | None = None) -> None:
     if command == "serve":
         sys.exit(cmd_serve(raw[1:], console))
 
-    if len(raw) == 1:
-        sys.exit(_unknown_command_recovery(console, command))
-
-    # Backward-compatible shorthand: treat unknown top-level text as run prompt.
+    # Default: treat unknown args as a run prompt.
     sys.exit(_dispatch_prompt_shorthand(raw, console))
 
 
